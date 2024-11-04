@@ -118,6 +118,7 @@ func run(ctx context.Context, name, version string, cliargs []string) error {
 	flags.IntVar(&args.macosMinor, "macos-minor", args.macosMinor, "macOS minor version")
 	flags.IntVar(&args.streams, "streams", args.streams, "number of concurrent streams")
 	flags.StringVar(&args.dest, "dest", args.dest, "destination path")
+	flags.StringVarP(&args.playlist, "playlist", "o", args.playlist, "playlist out")
 	flags.BoolVar(&args.list, "list", args.list, "list resources")
 	flags.BoolVar(&args.show, "show", args.show, "show resources")
 	flags.BoolVar(&args.grab, "grab", args.grab, "grab resources")
@@ -145,6 +146,7 @@ type Args struct {
 	macosMinor int
 	streams    int
 	dest       string
+	playlist   string
 
 	userAgent string
 	resURL    string
@@ -245,6 +247,9 @@ func (args *Args) doGrab(ctx context.Context) error {
 		return err
 	}
 	if err := args.getAssets(ctx, entries); err != nil {
+		return err
+	}
+	if err := args.writePlaylist(entries); err != nil {
 		return err
 	}
 	args.logger("total: %s", time.Since(start))
@@ -406,27 +411,6 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 	return nil
 }
 
-// getSize gets the size for an asset, by performing a HEAD against the url.
-func (args *Args) getSize(ctx context.Context, asset Asset) (int64, error) {
-	args.logger("checking: %s (%s)", name, asset.Identifier())
-	args.logger("HEAD %s", asset.URL4kSdr240FPS)
-	cl, err := args.client(true, true)
-	if err != nil {
-		return 0, err
-	}
-	req, err := args.newReq(ctx, "HEAD", asset.URL4kSdr240FPS, nil)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("User-Agent", args.userAgent)
-	res, err := cl.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer res.Body.Close()
-	return res.ContentLength, nil
-}
-
 // getEntries gets the asset entries.
 func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 	body, err := args.get(ctx, args.resURL, true)
@@ -462,6 +446,53 @@ func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 			return entries, nil
 		}
 	}
+}
+
+// getSize gets the size for an asset, by performing a HEAD against the url.
+func (args *Args) getSize(ctx context.Context, asset Asset) (int64, error) {
+	args.logger("checking: %s (%s)", name, asset.Identifier())
+	args.logger("HEAD %s", asset.URL4kSdr240FPS)
+	cl, err := args.client(true, true)
+	if err != nil {
+		return 0, err
+	}
+	req, err := args.newReq(ctx, "HEAD", asset.URL4kSdr240FPS, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", args.userAgent)
+	res, err := cl.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer res.Body.Close()
+	return res.ContentLength, nil
+}
+
+func (args *Args) writePlaylist(entries *Entries) error {
+	if args.playlist == "" {
+		return nil
+	}
+	u, err := user.Current()
+	if err != nil {
+		return err
+	}
+	baseDir := expand(u, args.dest)
+	out := filepath.Join(baseDir, args.playlist)
+	if baseDir != filepath.Dir(out) {
+		return fmt.Errorf("invalid playlist file name %q", args.playlist)
+	}
+	f, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	for _, asset := range entries.Assets {
+		if _, err := fmt.Fprintln(f, asset.File()); err != nil {
+			f.Close()
+			return err
+		}
+	}
+	return f.Close()
 }
 
 // buildUserAgent builds the user agent.
