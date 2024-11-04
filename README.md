@@ -18,5 +18,5 @@ $ wallgrab --grab
 $ wallgrab --grab --dest /path/to/wallpapers --playlist apple.m3u
 
 # use with mpvpaper
-$ mpvpaper -o 'no-audio --speed=0.1' '*' $HOME/Pictures/backgrounds/apple/dubai_3.mov
+$ mpvpaper -o 'no-audio --loop-playlist shuffle --speed=0.2' '*' /path/to/wallpapers/apple.m3u
 ```
