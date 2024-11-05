@@ -95,8 +95,10 @@ $ socat - $mpvctl <<< 'show-text ${osd-ass-cc/0}{\\an3}${osd-ass-cc/1}${media-ti
 - See [the mpv.io manual][mpvio] for command line switch information
 - See [here][mpvprops] for available mpv text properties
 - See [aegisub manual][aegisub] for more info on subtitle tags
+- See [Aerials discussion thread][aerialsgist]
 
 [mpvio]: https://mpv.io/manual/stable/
 [mpvprops]: https://mpv.io/manual/stable/#properties
 [aegisub]: https://aegisub.org/docs/latest/ass_tags/
 [shell-config-script]: https://github.com/kenshaw/shell-config/tree/master/sway/lock.sh
+[aerialsgist]: https://gist.github.com/theothernt/57a51cade0c12c407f48a5121e0939d5
