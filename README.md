@@ -28,8 +28,13 @@ Example [sway](https://swaywm.org) config:
 ```gitconfig
 # set up some variables
 set {
+  # window modifier key
   $mod Mod4
+
+  # control path for mpv
   $mpvctl $HOME/.local/lib/mpvpaper/control
+
+  # sets the output for the media title (read from the m3u) to the bottom right
   $mpvopt no-audio \
     --input-ipc-server=$mpvctl \
     --loop-playlist shuffle \
@@ -37,14 +42,14 @@ set {
     --osd-playing-msg='\${osd-ass-cc/0}{\\\\\\\\\\\\\\\\an3}\${osd-ass-cc/1}\${media-title}'
 }
 
-# use mpvpaper
+# run mpvpaper as wallpaper
 exec_always {
   killall -9 mpvpaper
   killall -9 swaybg
   mpvpaper -o "$mpvopt" '*' $HOME/Pictures/backgrounds/apple/wallpapers.m3u
 }
 
-# bind windows key + media keys to easily change backgrounds
+# bind modifier key + media keys to change/pause background
 bindsym {
  $mod+XF86AudioStop exec socat - $mpvctl <<< 'cycle pause'
  $mod+XF86AudioPrev exec socat - $mpvctl <<< 'playlist-prev'
@@ -52,6 +57,11 @@ bindsym {
  $mod+XF86AudioNext exec socat - $mpvctl <<< 'playlist-next'
 }
 ```
+
+> **Note:**
+>
+> The above \\'s are not a typo: due to the way escaping works with sway
+> config, and in turn with mpvpaper, this is the correct number of \\'s.
 
 ### Notes
 
@@ -62,7 +72,7 @@ Quick commands:
 $ socat - $mpvctl <<< 'show-text ${osd-ass-cc/0}{\\an3}${osd-ass-cc/1}${media-title}'
 ```
 
-> **Note**
+> **Note:**
 >
 > ${osd-ass-cc/0} and ${osd-ass-cc/1} - starts and ends subtitle escaping
 >
