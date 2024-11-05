@@ -63,6 +63,8 @@ bindsym {
 > The above \\'s are not a typo: due to the way escaping works with sway
 > config, and in turn with mpvpaper, this is the correct number of \\'s.
 
+To use with `swaylock-plugin`, [see the lock script here][shell-config-script].
+
 ### Notes
 
 Quick commands:
@@ -85,3 +87,4 @@ $ socat - $mpvctl <<< 'show-text ${osd-ass-cc/0}{\\an3}${osd-ass-cc/1}${media-ti
 [mpvio]: https://mpv.io/manual/stable/
 [mpvprops]: https://mpv.io/manual/stable/#properties
 [aegisub]: https://aegisub.org/docs/latest/ass_tags/
+[shell-config-script]: https://github.com/kenshaw/shell-config/tree/master/sway/lock.sh
