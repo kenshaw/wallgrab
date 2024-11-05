@@ -28,8 +28,9 @@ Example [sway](https://swaywm.org) config:
 ```gitconfig
 # set up some variables
 set {
-  # window modifier key
+  # modifier keys (windows key)
   $mod Mod4
+  $shf $mod+Shift
 
   # control path for mpv
   $mpvctl $HOME/.local/lib/mpvpaper/control
@@ -40,6 +41,16 @@ set {
     --loop-playlist shuffle \
     --speed=0.8 \
     --osd-playing-msg='\${osd-ass-cc/0}{\\\\\\\\\\\\\\\\an3}\${osd-ass-cc/1}\${media-title}'
+
+  # alternate location, bottom center with margin from bottom, stay on screen
+  # for 7.5 seconds
+  $mpvopt  no-audio \
+    --input-ipc-server=$mpvctl \
+    --loop-playlist shuffle \
+    --speed=0.8 \
+    --osd-margin-y=70 \
+    --osd-playing-msg-duration=7500 \
+    --osd-playing-msg='\${osd-ass-cc/0}{\\\\\\\\\\\\\\\\an2}\${osd-ass-cc/1}\${media-title}'
 }
 
 # run mpvpaper as wallpaper
@@ -51,10 +62,11 @@ exec_always {
 
 # bind modifier key + media keys to change/pause background
 bindsym {
- $mod+XF86AudioStop exec socat - $mpvctl <<< 'cycle pause'
- $mod+XF86AudioPrev exec socat - $mpvctl <<< 'playlist-prev'
- $mod+XF86AudioPlay exec socat - $mpvctl <<< 'cycle pause'
- $mod+XF86AudioNext exec socat - $mpvctl <<< 'playlist-next'
+  $mod+XF86AudioStop exec socat - $mpvctl <<< 'cycle pause'
+  $mod+XF86AudioPrev exec socat - $mpvctl <<< 'playlist-prev'
+  $mod+XF86AudioPlay exec socat - $mpvctl <<< 'cycle pause'
+  $mod+XF86AudioNext exec socat - $mpvctl <<< 'playlist-next'
+  $shf+XF86AudioPlay exec socat - $mpvctl <<< 'show-text ${osd-ass-cc/0}{\\an2}${osd-ass-cc/1}${media-title} 7500'
 }
 ```
 
