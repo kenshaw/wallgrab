@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -12,8 +13,10 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"math"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/user"
 	"path"
 	"path/filepath"
@@ -118,7 +121,7 @@ func run(ctx context.Context, name, version string, cliargs []string) error {
 	flags.IntVar(&args.macosMinor, "macos-minor", args.macosMinor, "macOS minor version")
 	flags.IntVar(&args.streams, "streams", args.streams, "number of concurrent streams")
 	flags.StringVar(&args.dest, "dest", args.dest, "destination path")
-	flags.StringVarP(&args.playlist, "playlist", "o", args.playlist, "playlist out")
+	flags.StringVarP(&args.m3u, "m3u", "o", args.m3u, "m3u out")
 	flags.BoolVar(&args.list, "list", args.list, "list resources")
 	flags.BoolVar(&args.show, "show", args.show, "show resources")
 	flags.BoolVar(&args.grab, "grab", args.grab, "grab resources")
@@ -146,7 +149,7 @@ type Args struct {
 	macosMinor int
 	streams    int
 	dest       string
-	playlist   string
+	m3u        string
 
 	userAgent string
 	resURL    string
@@ -249,7 +252,12 @@ func (args *Args) doGrab(ctx context.Context) error {
 	if err := args.getAssets(ctx, entries); err != nil {
 		return err
 	}
-	if err := args.writePlaylist(entries); err != nil {
+	// TODO: move ffprobe duration read into actual asset read, and put as part
+	// TODO: of workload, to make go fast, vroom VROOM VROOOOOOOOOOOOM
+	if err := args.addDur(ctx, entries); err != nil {
+		return err
+	}
+	if err := args.writeM3U(entries); err != nil {
 		return err
 	}
 	args.logger("total: %s", time.Since(start))
@@ -469,8 +477,8 @@ func (args *Args) getSize(ctx context.Context, asset Asset) (int64, error) {
 	return res.ContentLength, nil
 }
 
-func (args *Args) writePlaylist(entries *Entries) error {
-	if args.playlist == "" {
+func (args *Args) writeM3U(entries *Entries) error {
+	if args.m3u == "" {
 		return nil
 	}
 	u, err := user.Current()
@@ -478,21 +486,36 @@ func (args *Args) writePlaylist(entries *Entries) error {
 		return err
 	}
 	baseDir := expand(u, args.dest)
-	out := filepath.Join(baseDir, args.playlist)
+	out := filepath.Join(baseDir, args.m3u)
 	if baseDir != filepath.Dir(out) {
-		return fmt.Errorf("invalid playlist file name %q", args.playlist)
+		return fmt.Errorf("invalid m3u file name %q", args.m3u)
 	}
 	f, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
 	}
+	fmt.Fprintln(f, "#EXTM3U")
+	// title
+	fmt.Fprintln(f, "#PLAYLIST: Wallpapers")
 	for _, asset := range entries.Assets {
-		if _, err := fmt.Fprintln(f, asset.File()); err != nil {
-			f.Close()
-			return err
-		}
+		fmt.Fprintf(f, "#EXTINF:%d,%s\n", int(asset.Dur.Seconds()), asset.String())
+		fmt.Fprintln(f, asset.File())
 	}
 	return f.Close()
+}
+
+// addDur loads the durations of the files using ffprobe.
+func (args *Args) addDur(ctx context.Context, entries *Entries) error {
+	for i, asset := range entries.Assets {
+		dur, err := ffprobeDuration(ctx, asset.Out)
+		if err != nil {
+			return err
+		}
+		asset.Dur = time.Duration(dur) * time.Second
+		args.logger("%s duration %s", asset.Out, asset.Dur)
+		entries.Assets[i] = asset
+	}
+	return nil
 }
 
 // buildUserAgent builds the user agent.
@@ -621,10 +644,11 @@ type Asset struct {
 	Group              string            `json:"group"`
 
 	// state fields (not in json)
-	Num  int    `json:"-"`
-	Size int64  `json:"-"`
-	Out  string `json:"-"`
-	DL   bool   `json:"-"`
+	Num  int           `json:"-"`
+	Size int64         `json:"-"`
+	Out  string        `json:"-"`
+	DL   bool          `json:"-"`
+	Dur  time.Duration `json:"-"`
 }
 
 func (a Asset) String() string {
@@ -706,6 +730,43 @@ func expand(u *user.User, name string) string {
 	}
 	return name
 }
+
+// ffprobeDuration uses ffprobe to determine the duration in seconds of a file.
+func ffprobeDuration(ctx context.Context, name string) (int64, error) {
+	ffprobeOnce.Do(func() {
+		ffprobePath, _ = exec.LookPath("ffprobe")
+	})
+	if ffprobePath == "" {
+		return -1, nil
+	}
+	// ffprobe -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 california_wildflowers.mov 2>/dev/null
+	cmd := exec.CommandContext(
+		ctx,
+		ffprobePath,
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		name,
+	)
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, io.Discard
+	if err := cmd.Run(); err != nil {
+		return -1, err
+	}
+	f, err := strconv.ParseFloat(strings.TrimSpace(buf.String()), 64)
+	switch {
+	case err != nil:
+		return -1, err
+	case f <= 0.0:
+		return -1, fmt.Errorf("unable to determine duration for %q", name)
+	}
+	return int64(math.Ceil(f)), err
+}
+
+// ffprobe vars.
+var (
+	ffprobePath string
+	ffprobeOnce sync.Once
+)
 
 // resourcesConfigPlistURL is the resources config plist URL.
 const resourcesConfigPlistURL = "https://configuration.apple.com/configurations/internetservices/aerials/resources-config-%d-%d.plist"
