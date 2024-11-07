@@ -91,6 +91,9 @@ $ socat - $mpvctl <<< 'set pause yes'
 # cycle pause
 $ socat - $mpvctl <<< 'cycle pause'
 
+# get property
+$ socat - $mpvctl <<< '{ "command": ["get_property", "pause"] }'
+
 # list properties
 $ mpv --list-properties
 ```
