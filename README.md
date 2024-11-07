@@ -36,17 +36,23 @@ set {
   $mpvctl $HOME/.local/lib/mpvpaper/control
 
   # sets the output for the media title (read from the m3u) to the bottom right
-  $mpvopt no-audio \
+  $mpvopt \
+    --hwdec \
+    --no-audio \
     --input-ipc-server=$mpvctl \
-    --loop-playlist shuffle \
+    --shuffle \
+    --loop-playlist \
     --speed=0.8 \
     --osd-playing-msg='\${osd-ass-cc/0}{\\\\\\\\\\\\\\\\an3}\${osd-ass-cc/1}\${media-title}'
 
   # alternate location, bottom center with margin from bottom, stay on screen
   # for 7.5 seconds
-  $mpvopt no-audio \
+  $mpvopt \
+    --hwdec \
+    --no-audio \
     --input-ipc-server=$mpvctl \
-    --loop-playlist shuffle \
+    --loop-playlist \
+    --shuffle \
     --speed=0.8 \
     --osd-margin-y=70 \
     --osd-playing-msg-duration=7500 \
