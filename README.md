@@ -44,7 +44,7 @@ set {
 
   # alternate location, bottom center with margin from bottom, stay on screen
   # for 7.5 seconds
-  $mpvopt  no-audio \
+  $mpvopt no-audio \
     --input-ipc-server=$mpvctl \
     --loop-playlist shuffle \
     --speed=0.8 \
@@ -54,9 +54,7 @@ set {
 }
 
 # run mpvpaper as wallpaper
-exec_always {
-  killall -9 mpvpaper
-  killall -9 swaybg
+exec {
   mpvpaper -o "$mpvopt" '*' $HOME/Pictures/backgrounds/apple/wallpapers.m3u
 }
 
@@ -82,8 +80,19 @@ To use with `swaylock-plugin`, [see the lock script here][shell-config-script].
 Quick commands:
 
 ```sh
+$ export mpvctl=/path/to/control/socket
+
 # display text in bottom right corner
 $ socat - $mpvctl <<< 'show-text ${osd-ass-cc/0}{\\an3}${osd-ass-cc/1}${media-title}'
+
+# set pause
+$ socat - $mpvctl <<< 'set pause yes'
+
+# cycle pause
+$ socat - $mpvctl <<< 'cycle pause'
+
+# list properties
+$ mpv --list-properties
 ```
 
 > **Note:**
@@ -92,13 +101,15 @@ $ socat - $mpvctl <<< 'show-text ${osd-ass-cc/0}{\\an3}${osd-ass-cc/1}${media-ti
 >
 > \an<pos> - uses numpad numbers for location, hence 3 == lower right
 
-- See [the mpv.io manual][mpvio] for command line switch information
-- See [here][mpvprops] for available mpv text properties
+- See [the mpv.io manual][mpvio]
+- See [mpv.io commands][mpvcommands] for commands that can be sent via the control socket
+- See [mpv.io properties][mpvprops] for available mpv text properties
 - See [aegisub manual][aegisub] for more info on subtitle tags
 - See [Aerials discussion thread][aerialsgist]
 
 [mpvio]: https://mpv.io/manual/stable/
 [mpvprops]: https://mpv.io/manual/stable/#properties
+[mpvcommands]: https://mpv.io/manual/stable/#list-of-input-commands
 [aegisub]: https://aegisub.org/docs/latest/ass_tags/
 [shell-config-script]: https://github.com/kenshaw/shell-config/tree/master/sway/lock.sh
 [aerialsgist]: https://gist.github.com/theothernt/57a51cade0c12c407f48a5121e0939d5
