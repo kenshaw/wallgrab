@@ -3,9 +3,9 @@ module github.com/kenshaw/wallgrab
 go 1.23.2
 
 require (
-	github.com/alitto/pond/v2 v2.0.4
+	github.com/alitto/pond/v2 v2.1.4
 	github.com/chromedp/verhist v0.3.7
-	github.com/groob/plist v0.0.0-20220217120414-63fa881b19a5
+	github.com/groob/plist v0.1.1
 	github.com/kenshaw/colors v0.1.6
 	github.com/kenshaw/diskcache v0.9.0
 	github.com/kenshaw/httplog v0.5.0
@@ -26,10 +26,10 @@ require (
 	github.com/soniakeys/quant v1.0.0 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/tdewolff/minify/v2 v2.21.1 // indirect
+	github.com/tdewolff/minify/v2 v2.21.2 // indirect
 	github.com/tdewolff/parse/v2 v2.7.19 // indirect
 	github.com/yookoala/realpath v1.0.0 // indirect
-	golang.org/x/sys v0.25.0 // indirect
-	golang.org/x/term v0.24.0 // indirect
-	golang.org/x/text v0.19.0 // indirect
+	golang.org/x/sys v0.27.0 // indirect
+	golang.org/x/term v0.26.0 // indirect
+	golang.org/x/text v0.20.0 // indirect
 )
