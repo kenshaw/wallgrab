@@ -34,7 +34,6 @@ import (
 	"github.com/kenshaw/diskcache"
 	"github.com/kenshaw/httplog"
 	"github.com/kenshaw/rasterm"
-	"github.com/kenshaw/snaker"
 	"github.com/spf13/cobra"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
@@ -59,7 +58,9 @@ func run(ctx context.Context, name, version string, cliargs []string) error {
 		macosMajor: 15,
 		macosMinor: 0,
 		streams:    4,
-		dest:       "~/Pictures/backgrounds/apple",
+		lang:       "en",
+		dest:       "~/Pictures/backgrounds/aerials",
+		m3u:        "aerials.m3u",
 	}
 	switch n := runtime.NumCPU(); {
 	case n > 6:
@@ -123,6 +124,7 @@ func run(ctx context.Context, name, version string, cliargs []string) error {
 	flags.StringVar(&args.dest, "dest", args.dest, "destination path")
 	flags.StringVarP(&args.m3u, "m3u", "o", args.m3u, "m3u out")
 	flags.BoolVar(&args.list, "list", args.list, "list resources")
+	flags.StringVar(&args.lang, "lang", args.lang, "language")
 	flags.BoolVar(&args.show, "show", args.show, "show resources")
 	flags.BoolVar(&args.grab, "grab", args.grab, "grab resources")
 	// completions
@@ -156,6 +158,7 @@ type Args struct {
 
 	all  bool
 	list bool
+	lang string
 	show bool
 	grab bool
 
@@ -193,7 +196,7 @@ func (args *Args) doList(ctx context.Context) error {
 		return err
 	}
 	for i, asset := range entries.Assets {
-		fmt.Printf("%d: %s %q\n", i, asset.Identifier(), asset.Title())
+		fmt.Printf("%3d: %s (%s)\n", i, asset.String(), asset.ShotID)
 	}
 	return nil
 }
@@ -214,7 +217,7 @@ func (args *Args) doShow(ctx context.Context) error {
 		return err
 	}
 	for _, asset := range entries.Assets {
-		fmt.Fprintf(os.Stdout, "%s (% .2f):\n", asset.Identifier(), decor.SizeB1024(asset.Size))
+		fmt.Fprintf(os.Stdout, "%s (% .2f):\n", asset.String(), decor.SizeB1024(asset.Size))
 		body, err := args.get(ctx, asset.PreviewImage, true)
 		if err != nil {
 			return err
@@ -319,14 +322,11 @@ func (args *Args) setDL(entries *Entries) error {
 		return err
 	}
 	baseDir := expand(u, args.dest)
-	if err := os.MkdirAll(baseDir, 0o755); err != nil {
-		return err
-	}
 	for i, asset := range entries.Assets {
 		if asset.Size == 0 {
-			return fmt.Errorf("%s has size 0", asset.Identifier())
+			return fmt.Errorf("%s has size 0", asset.String())
 		}
-		size, out := int64(0), filepath.Join(baseDir, asset.File())
+		size, out := int64(0), filepath.Join(baseDir, asset.String())
 		switch fi, err := os.Stat(out); {
 		case errors.Is(err, os.ErrNotExist):
 		case err != nil:
@@ -347,12 +347,12 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 		return nil
 	}
 	// determine longest name and total size
-	n, total := len(entries.Assets[0].Identifier()), int64(0)
+	n, total := len(entries.Assets[0].String()), int64(0)
 	for _, asset := range entries.Assets[1:] {
 		if !asset.DL {
 			continue
 		}
-		n, total = max(n, len(asset.Identifier())), total+asset.Size
+		n, total = max(n, len(asset.String())), total+asset.Size
 	}
 	// create task pool and progress bar
 	pool := pond.NewPool(args.streams, pond.WithContext(ctx))
@@ -367,10 +367,13 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 		if !asset.DL {
 			continue
 		}
-		args.logger("%s -> %s (% .2f)", asset.Identifier(), asset.Out, decor.SizeB1024(asset.Size))
+		args.logger("%s -> %s (% .2f)", asset.ShotID, asset.Out, decor.SizeB1024(asset.Size))
 		wg.Add(1)
 		pool.SubmitErr(func() error {
 			defer wg.Done()
+			if err := os.MkdirAll(filepath.Dir(asset.Out), 0o755); err != nil {
+				return err
+			}
 			// out
 			f, err := os.OpenFile(asset.Out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0o644)
 			if err != nil {
@@ -398,7 +401,7 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 				asset.Size,
 				mpb.BarStyle(),
 				mpb.PrependDecorators(
-					decor.Name(fmt.Sprintf("%- *s", n+2, asset.Identifier()+": ")),
+					decor.Name(fmt.Sprintf("%- *s", n+2, asset.String()+": ")),
 				),
 				mpb.AppendDecorators(
 					decor.OnComplete(
@@ -419,46 +422,82 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 	return nil
 }
 
+func (args *Args) getNames(ctx context.Context) (map[string]string, error) {
+	buf, err := args.getTarFile(ctx, "./TVIdleScreenStrings.bundle/"+args.lang+".lproj/Localizable.nocache.strings")
+	if err != nil {
+		return nil, fmt.Errorf("could not find plist for language %s", args.lang)
+	}
+	m := make(map[string]string)
+	if err := plist.Unmarshal(buf, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // getEntries gets the asset entries.
 func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
+	buf, err := args.getTarFile(ctx, "./entries.json")
+	if err != nil {
+		return nil, err
+	}
+	entries := new(Entries)
+	dec := json.NewDecoder(bytes.NewReader(buf))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(entries); err != nil {
+		return nil, err
+	}
+	names, err := args.getNames(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i, asset := range entries.Assets {
+		asset.Name = names[asset.LocalizedNameKey]
+		// add category names
+		asset.CategoryNames = make([]string, len(asset.Categories))
+		for i, id := range asset.Categories {
+			asset.CategoryNames[i] = names[entries.GetCategory(id)]
+		}
+		// add subcategory names
+		asset.SubcategoryNames = make([]string, len(asset.Subcategories))
+		for i, id := range asset.Subcategories {
+			asset.SubcategoryNames[i] = names[entries.GetSubcategory(asset.Categories, id)]
+		}
+		entries.Assets[i] = asset
+	}
+	m := make(map[string]bool)
+	for _, asset := range entries.Assets {
+		name := asset.String()
+		if _, ok := m[name]; ok {
+			return nil, fmt.Errorf("%s is not unique: %q", asset.ShotID, name)
+		}
+		m[name] = true
+	}
+	sort.Slice(entries.Assets, func(i, j int) bool {
+		return entries.Assets[i].String() < entries.Assets[j].String()
+	})
+	return entries, nil
+}
+
+func (args *Args) getTarFile(ctx context.Context, name string) ([]byte, error) {
 	body, err := args.get(ctx, args.resURL, true)
 	if err != nil {
 		return nil, err
 	}
 	defer body.Close()
-	r := tar.NewReader(body)
-	for {
+	args.logger("reading tar for: %s", name)
+	for r := tar.NewReader(body); ; {
 		switch h, err := r.Next(); {
 		case err != nil:
 			return nil, err
-		case h.Name == "./entries.json":
-			entries := new(Entries)
-			dec := json.NewDecoder(r)
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(entries); err != nil {
-				return nil, err
-			}
-			m := make(map[string]int)
-			for i, asset := range entries.Assets {
-				id := asset.Identifier()
-				num, ok := m[id]
-				if ok {
-					num++
-				}
-				asset.Num, m[id] = num, num
-				entries.Assets[i] = asset
-			}
-			sort.Slice(entries.Assets, func(i, j int) bool {
-				return strings.Compare(entries.Assets[i].Identifier(), entries.Assets[j].Identifier()) < 0
-			})
-			return entries, nil
+		case h.Name == name:
+			return io.ReadAll(r)
 		}
 	}
 }
 
 // getSize gets the size for an asset, by performing a HEAD against the url.
 func (args *Args) getSize(ctx context.Context, asset Asset) (int64, error) {
-	args.logger("checking: %s (%s)", name, asset.Identifier())
+	args.logger("checking: %s %s", asset.ShotID, asset.String())
 	args.logger("HEAD %s", asset.URL4kSdr240FPS)
 	cl, err := args.client(true, true)
 	if err != nil {
@@ -498,8 +537,8 @@ func (args *Args) writeM3U(entries *Entries) error {
 	// title
 	fmt.Fprintln(f, "#PLAYLIST: Wallpapers")
 	for _, asset := range entries.Assets {
-		fmt.Fprintf(f, "#EXTINF:%d,%s\n", int(asset.Dur.Seconds()), asset.String())
-		fmt.Fprintln(f, asset.File())
+		fmt.Fprintf(f, "#EXTINF:%d,%s\n", int(asset.Dur.Seconds()), asset.Name)
+		fmt.Fprintln(f, asset.String())
 	}
 	return f.Close()
 }
@@ -627,6 +666,30 @@ type Entries struct {
 	Categories          []Category `json:"categories"`
 }
 
+func (entries *Entries) GetCategory(id string) string {
+	for _, category := range entries.Categories {
+		if category.ID == id {
+			return category.LocalizedNameKey
+		}
+	}
+	panic(fmt.Sprintf("could not find category %s", id))
+}
+
+func (entries *Entries) GetSubcategory(categories []string, id string) string {
+	if len(categories) == 1 {
+		for _, category := range entries.Categories {
+			if category.ID == categories[0] {
+				for _, subcategory := range category.Subcategories {
+					if subcategory.ID == id {
+						return subcategory.LocalizedNameKey
+					}
+				}
+			}
+		}
+	}
+	panic(fmt.Sprintf("could not find subcategory %s", id))
+}
+
 // Asset contains asset information for entries.json.
 type Asset struct {
 	ID                 string            `json:"id"`
@@ -643,44 +706,24 @@ type Asset struct {
 	Categories         []string          `json:"categories"`
 	Group              string            `json:"group"`
 
+	// names
+	Name             string   `json:"-"`
+	CategoryNames    []string `json:"-"`
+	SubcategoryNames []string `json:"-"`
+
 	// state fields (not in json)
-	Num  int           `json:"-"`
 	Size int64         `json:"-"`
 	Out  string        `json:"-"`
 	DL   bool          `json:"-"`
 	Dur  time.Duration `json:"-"`
 }
 
+func (a Asset) Names() []string {
+	return append(a.CategoryNames, append(a.SubcategoryNames, a.Name)...)
+}
+
 func (a Asset) String() string {
-	switch {
-	case a.AccessibilityLabel != "":
-		return a.AccessibilityLabel
-	case a.ShotID != "":
-		return a.ShotID
-	}
-	return a.ID
-}
-
-func (a Asset) Title() string {
-	if a.Num != 0 {
-		return a.String() + " (" + strconv.Itoa(a.Num) + ")"
-	}
-	return a.String()
-}
-
-func (a Asset) Identifier() string {
-	return snaker.CamelToSnakeIdentifier(a.String()) + a.NumString()
-}
-
-func (a Asset) NumString() string {
-	if a.Num != 0 {
-		return "_" + strconv.Itoa(a.Num)
-	}
-	return ""
-}
-
-func (a Asset) File() string {
-	return a.Identifier() + path.Ext(a.URL4kSdr240FPS)
+	return strings.Join(a.Names(), "/") + path.Ext(a.URL4kSdr240FPS)
 }
 
 // Category contains category information for entries.json.

@@ -1,6 +1,6 @@
 # wallgrab
 
-A quick util to grab Apple's wallpapers.
+A quick util to grab Apple Aerial wallpapers.
 
 ## Using
 
@@ -15,10 +15,10 @@ $ wallgrab --show
 $ wallgrab --grab
 
 # grab and write playlist
-$ wallgrab --grab --dest /path/to/wallpapers --m3u apple.m3u
+$ wallgrab --grab --dest /path/to/wallpapers
 
 # use with mpvpaper
-$ mpvpaper -o 'no-audio --loop-playlist shuffle --speed=0.2' '*' /path/to/wallpapers/apple.m3u
+$ mpvpaper -o 'no-audio --loop-playlist shuffle --speed=0.2' '*' /path/to/wallpapers/aerials.m3u
 ```
 
 ### Sway
@@ -61,7 +61,7 @@ set {
 
 # run mpvpaper as wallpaper
 exec {
-  mpvpaper -o "$mpvopt" '*' $HOME/Pictures/backgrounds/apple/wallpapers.m3u
+  mpvpaper -o "$mpvopt" '*' $HOME/Pictures/backgrounds/aerials/aerials.m3u
 }
 
 # bind modifier key + media keys to change/pause background
