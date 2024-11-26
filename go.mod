@@ -6,7 +6,6 @@ require (
 	github.com/alitto/pond/v2 v2.1.4
 	github.com/chromedp/verhist v0.3.7
 	github.com/groob/plist v0.1.1
-	github.com/kenshaw/colors v0.1.6
 	github.com/kenshaw/diskcache v0.9.0
 	github.com/kenshaw/httplog v0.5.0
 	github.com/kenshaw/rasterm v0.1.11
@@ -19,7 +18,6 @@ require (
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/kenshaw/snaker v0.3.0 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mattn/go-sixel v0.0.5 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

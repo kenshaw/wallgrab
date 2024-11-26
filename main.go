@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
@@ -30,7 +29,6 @@ import (
 	"github.com/alitto/pond/v2"
 	"github.com/chromedp/verhist"
 	"github.com/groob/plist"
-	"github.com/kenshaw/colors"
 	"github.com/kenshaw/diskcache"
 	"github.com/kenshaw/httplog"
 	"github.com/kenshaw/rasterm"
@@ -53,7 +51,6 @@ func main() {
 
 func run(ctx context.Context, name, version string, cliargs []string) error {
 	args := &Args{
-		bg:         colors.FromColor(color.Transparent),
 		logger:     func(string, ...interface{}) {},
 		macosMajor: 15,
 		macosMinor: 0,
@@ -146,7 +143,6 @@ func run(ctx context.Context, name, version string, cliargs []string) error {
 type Args struct {
 	verbose    bool
 	quiet      bool
-	bg         colors.Color
 	macosMajor int
 	macosMinor int
 	streams    int
