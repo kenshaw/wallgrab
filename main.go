@@ -1,3 +1,4 @@
+// Command wallgrab downloads Apple's Aerial wallpapers.
 package main
 
 import (
@@ -32,139 +33,66 @@ import (
 	"github.com/kenshaw/diskcache"
 	"github.com/kenshaw/httplog"
 	"github.com/kenshaw/rasterm"
-	"github.com/spf13/cobra"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
-)
-
-var (
-	name    = "wallgrab"
-	version = "0.0.0-dev"
+	"github.com/xo/ox"
 )
 
 func main() {
-	if err := run(context.Background(), name, version, os.Args); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func run(ctx context.Context, name, version string, cliargs []string) error {
 	args := &Args{
+		MacosMajor: 15,
+		MacosMinor: 0,
+		Streams:    4,
+		Lang:       "en",
+		Dest:       "~/Pictures/backgrounds/aerials",
 		logger:     func(string, ...interface{}) {},
-		macosMajor: 15,
-		macosMinor: 0,
-		streams:    4,
-		lang:       "en",
-		dest:       "~/Pictures/backgrounds/aerials",
-		m3u:        "aerials.m3u",
 	}
 	switch n := runtime.NumCPU(); {
 	case n > 6:
-		args.streams = 8
+		args.Streams = 8
 	case n > 4:
-		args.streams = 6
+		args.Streams = 6
 	}
-	var (
-		bashCompletion       bool
-		zshCompletion        bool
-		fishCompletion       bool
-		powershellCompletion bool
-		noDescriptions       bool
+	ox.RunContext(
+		context.Background(),
+		ox.Exec(func() {}),
+		ox.Usage("wallgrab", "a apple aerials wallpaper downloader"),
+		ox.Defaults(),
+		ox.From(args),
+		ox.Sub(
+			ox.Exec(args.doList),
+			ox.Usage("list", "list available aerials"),
+		),
+		ox.Sub(
+			ox.Exec(args.doShow),
+			ox.Usage("show", "show available aerial thumbnails with term graphics"),
+		),
+		ox.Sub(
+			ox.Exec(args.doGrab),
+			ox.Usage("grab", "grab available aerials"),
+		),
 	)
-	c := &cobra.Command{
-		Use:           name + " [flags] <image1> [image2, ..., imageN]",
-		Short:         name + ", a command-line image viewer using terminal graphics",
-		Version:       version,
-		SilenceErrors: true,
-		SilenceUsage:  false,
-		RunE: func(cmd *cobra.Command, cliargs []string) error {
-			// completions and short circuits
-			switch {
-			case bashCompletion:
-				return cmd.GenBashCompletionV2(os.Stdout, !noDescriptions)
-			case zshCompletion:
-				if noDescriptions {
-					return cmd.GenZshCompletionNoDesc(os.Stdout)
-				}
-				return cmd.GenZshCompletion(os.Stdout)
-			case fishCompletion:
-				return cmd.GenFishCompletion(os.Stdout, !noDescriptions)
-			case powershellCompletion:
-				if noDescriptions {
-					return cmd.GenPowerShellCompletion(os.Stdout)
-				}
-				return cmd.GenPowerShellCompletionWithDesc(os.Stdout)
-			}
-			f := args.setup
-			switch {
-			case args.list:
-				f = args.doList
-			case args.show:
-				f = args.doShow
-			case args.grab:
-				f = args.doGrab
-			}
-			return f(ctx)
-		},
-	}
-	c.SetVersionTemplate("{{ .Name }} {{ .Version }}\n")
-	c.SetArgs(cliargs[1:])
-	// flags
-	flags := c.Flags()
-	flags.BoolVarP(&args.verbose, "verbose", "v", args.verbose, "enable verbose")
-	flags.BoolVarP(&args.quiet, "quiet", "q", args.quiet, "enable quiet")
-	flags.Var(args.bg.Pflag(), "bg", "background color")
-	flags.IntVar(&args.macosMajor, "macos-major", args.macosMajor, "macOS major version")
-	flags.IntVar(&args.macosMinor, "macos-minor", args.macosMinor, "macOS minor version")
-	flags.IntVar(&args.streams, "streams", args.streams, "number of concurrent streams")
-	flags.StringVar(&args.dest, "dest", args.dest, "destination path")
-	flags.StringVarP(&args.m3u, "m3u", "o", args.m3u, "m3u out")
-	flags.BoolVar(&args.list, "list", args.list, "list resources")
-	flags.StringVar(&args.lang, "lang", args.lang, "language")
-	flags.BoolVar(&args.show, "show", args.show, "show resources")
-	flags.BoolVar(&args.grab, "grab", args.grab, "grab resources")
-	// completions
-	flags.BoolVar(&bashCompletion, "completion-script-bash", false, "output bash completion script and exit")
-	flags.BoolVar(&zshCompletion, "completion-script-zsh", false, "output zsh completion script and exit")
-	flags.BoolVar(&fishCompletion, "completion-script-fish", false, "output fish completion script and exit")
-	flags.BoolVar(&powershellCompletion, "completion-script-powershell", false, "output powershell completion script and exit")
-	flags.BoolVar(&noDescriptions, "no-descriptions", false, "disable descriptions in completion scripts")
-	// mark hidden
-	for _, name := range []string{
-		"completion-script-bash", "completion-script-zsh", "completion-script-fish",
-		"completion-script-powershell", "no-descriptions",
-	} {
-		flags.Lookup(name).Hidden = true
-	}
-	return c.ExecuteContext(ctx)
 }
 
 type Args struct {
-	verbose    bool
-	quiet      bool
-	macosMajor int
-	macosMinor int
-	streams    int
-	dest       string
-	m3u        string
+	Verbose    bool   `ox:"enable verbose,short:v"`
+	Quiet      bool   `ox:"enable quiet,short:q"`
+	MacosMajor int    `ox:"macOS major version"`
+	MacosMinor int    `ox:"macOS minor version"`
+	Streams    int    `ox:"concurrent streams"`
+	Dest       string `ox:"dest"`
+	M3u        string `ox:"m3u"`
+	UserAgent  string `ox:"user agent"`
+	Lang       string `ox:"language"`
 
-	userAgent string
-	resURL    string
-
-	all  bool
-	list bool
-	lang string
-	show bool
-	grab bool
-
+	resURL string
 	logger func(string, ...interface{})
 }
 
 // setup sets up the args.
 func (args *Args) setup(ctx context.Context) error {
 	// set verbose logger
-	if args.verbose {
+	if args.Verbose {
 		args.logger = func(s string, v ...interface{}) {
 			fmt.Fprintf(os.Stderr, s+"\n", v...)
 		}
@@ -173,7 +101,7 @@ func (args *Args) setup(ctx context.Context) error {
 		return err
 	}
 	now := time.Now()
-	args.logger("user-agent: %s (%s)", args.userAgent, time.Since(now))
+	args.logger("user-agent: %s (%s)", args.UserAgent, time.Since(now))
 	now = time.Now()
 	if err := args.getResURL(ctx); err != nil {
 		return err
@@ -268,7 +196,7 @@ func (args *Args) getSizes(ctx context.Context, entries *Entries) error {
 	if len(entries.Assets) < 1 {
 		return nil
 	}
-	pool := pond.NewPool(args.streams, pond.WithContext(ctx))
+	pool := pond.NewPool(args.Streams, pond.WithContext(ctx))
 	var wg sync.WaitGroup
 	pb := mpb.NewWithContext(
 		ctx,
@@ -317,7 +245,7 @@ func (args *Args) setDL(entries *Entries) error {
 	if err != nil {
 		return err
 	}
-	baseDir := expand(u, args.dest)
+	baseDir := expand(u, args.Dest)
 	for i, asset := range entries.Assets {
 		if asset.Size == 0 {
 			return fmt.Errorf("%s has size 0", asset.String())
@@ -351,7 +279,7 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 		n, total = max(n, len(asset.String())), total+asset.Size
 	}
 	// create task pool and progress bar
-	pool := pond.NewPool(args.streams, pond.WithContext(ctx))
+	pool := pond.NewPool(args.Streams, pond.WithContext(ctx))
 	var wg sync.WaitGroup
 	pb := mpb.NewWithContext(
 		ctx,
@@ -377,7 +305,7 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 			}
 			defer f.Close()
 			// build client and request
-			cl, err := args.client(true, false)
+			cl, err := args.client(ctx, true, false)
 			if err != nil {
 				return err
 			}
@@ -419,9 +347,9 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 }
 
 func (args *Args) getNames(ctx context.Context) (map[string]string, error) {
-	buf, err := args.getTarFile(ctx, "./TVIdleScreenStrings.bundle/"+args.lang+".lproj/Localizable.nocache.strings")
+	buf, err := args.getTarFile(ctx, "./TVIdleScreenStrings.bundle/"+args.Lang+".lproj/Localizable.nocache.strings")
 	if err != nil {
-		return nil, fmt.Errorf("could not find plist for language %s", args.lang)
+		return nil, fmt.Errorf("could not find plist for language %s", args.Lang)
 	}
 	m := make(map[string]string)
 	if err := plist.Unmarshal(buf, &m); err != nil {
@@ -495,7 +423,7 @@ func (args *Args) getTarFile(ctx context.Context, name string) ([]byte, error) {
 func (args *Args) getSize(ctx context.Context, asset Asset) (int64, error) {
 	args.logger("checking: %s %s", asset.ShotID, asset.String())
 	args.logger("HEAD %s", asset.URL4kSdr240FPS)
-	cl, err := args.client(true, true)
+	cl, err := args.client(ctx, true, true)
 	if err != nil {
 		return 0, err
 	}
@@ -503,7 +431,7 @@ func (args *Args) getSize(ctx context.Context, asset Asset) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("User-Agent", args.userAgent)
+	req.Header.Set("User-Agent", args.UserAgent)
 	res, err := cl.Do(req)
 	if err != nil {
 		return 0, err
@@ -513,17 +441,17 @@ func (args *Args) getSize(ctx context.Context, asset Asset) (int64, error) {
 }
 
 func (args *Args) writeM3U(entries *Entries) error {
-	if args.m3u == "" {
+	if args.M3u == "" {
 		return nil
 	}
 	u, err := user.Current()
 	if err != nil {
 		return err
 	}
-	baseDir := expand(u, args.dest)
-	out := filepath.Join(baseDir, args.m3u)
+	baseDir := expand(u, args.Dest)
+	out := filepath.Join(baseDir, args.M3u)
 	if baseDir != filepath.Dir(out) {
-		return fmt.Errorf("invalid m3u file name %q", args.m3u)
+		return fmt.Errorf("invalid m3u file name %q", args.M3u)
 	}
 	f, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
@@ -555,14 +483,15 @@ func (args *Args) addDur(ctx context.Context, entries *Entries) error {
 
 // buildUserAgent builds the user agent.
 func (args *Args) buildUserAgent(ctx context.Context) error {
-	if args.userAgent != "" {
+	if args.UserAgent != "" {
 		return nil
 	}
-	cache, err := newDiskCache(name, http.DefaultTransport.(*http.Transport).Clone())
+	c, _ := ox.Ctx(ctx)
+	cache, err := newDiskCache(c.Root.Name, http.DefaultTransport.(*http.Transport).Clone())
 	if err != nil {
 		return err
 	}
-	args.userAgent, err = verhist.UserAgent(
+	args.UserAgent, err = verhist.UserAgent(
 		ctx,
 		"linux",
 		"stable",
@@ -572,7 +501,7 @@ func (args *Args) buildUserAgent(ctx context.Context) error {
 }
 
 // client returns the http client using the shared cache.
-func (args *Args) client(insecure, cache bool) (*http.Client, error) {
+func (args *Args) client(ctx context.Context, insecure, cache bool) (*http.Client, error) {
 	var transport http.RoundTripper = http.DefaultTransport.(*http.Transport).Clone()
 	if insecure {
 		transport.(*http.Transport).TLSClientConfig = &tls.Config{
@@ -580,7 +509,7 @@ func (args *Args) client(insecure, cache bool) (*http.Client, error) {
 		}
 	}
 	if cache {
-		if args.verbose {
+		if args.Verbose {
 			transport = httplog.NewPrefixedRoundTripLogger(
 				transport,
 				args.logger,
@@ -588,7 +517,8 @@ func (args *Args) client(insecure, cache bool) (*http.Client, error) {
 			)
 		}
 		var err error
-		if transport, err = newDiskCache(name, transport); err != nil {
+		c, _ := ox.Ctx(ctx)
+		if transport, err = newDiskCache(c.Root.Name, transport); err != nil {
 			return nil, err
 		}
 	}
@@ -603,14 +533,14 @@ func (args *Args) newReq(ctx context.Context, method, urlstr string, body io.Rea
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", args.userAgent)
+	req.Header.Set("User-Agent", args.UserAgent)
 	return req, nil
 }
 
 // get returns the url using the shared cache.
 func (args *Args) get(ctx context.Context, urlstr string, insecure bool) (io.ReadCloser, error) {
 	args.logger("GET %s insecure:%t", urlstr, insecure)
-	cl, err := args.client(insecure, true)
+	cl, err := args.client(ctx, insecure, true)
 	if err != nil {
 		return nil, err
 	}
@@ -639,7 +569,7 @@ func (args *Args) getResURL(ctx context.Context) error {
 	if args.resURL != "" {
 		return nil
 	}
-	buf, err := args.getAll(ctx, fmt.Sprintf(resourcesConfigPlistURL, args.macosMajor, args.macosMinor), false)
+	buf, err := args.getAll(ctx, fmt.Sprintf(resourcesConfigPlistURL, args.MacosMajor, args.MacosMinor), false)
 	if err != nil {
 		return err
 	}
