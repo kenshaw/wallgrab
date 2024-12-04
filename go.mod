@@ -10,14 +10,13 @@ require (
 	github.com/kenshaw/httplog v0.5.0
 	github.com/kenshaw/rasterm v0.1.11
 	github.com/vbauerster/mpb/v8 v8.8.3
-	github.com/xo/ox v0.0.0-20241126093501-c27873a277a2
+	github.com/xo/ox v0.0.0-20241204023023-210f32e019a5
 )
 
 require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
-	github.com/kenshaw/snaker v0.4.1 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mattn/go-sixel v0.0.5 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

@@ -55,7 +55,6 @@ func main() {
 	}
 	ox.RunContext(
 		context.Background(),
-		ox.Exec(func() {}),
 		ox.Usage("wallgrab", "a apple aerials wallpaper downloader"),
 		ox.Defaults(),
 		ox.From(args),

@@ -16,8 +16,6 @@ github.com/kenshaw/httplog v0.5.0 h1:410ty6C2/DSKM6USGuAI1HvQZmPQs9tpxvG1Gee3oA8
 github.com/kenshaw/httplog v0.5.0/go.mod h1:3EP6ptsFu6G3PNOjoPq5rNGM9TwOA9Ur7SLWzj3m4Fw=
 github.com/kenshaw/rasterm v0.1.11 h1:GSXJx+47APM53hEFrGLqIxfG/cQc7tIqeqcPwbVIKBY=
 github.com/kenshaw/rasterm v0.1.11/go.mod h1:oKL76NdzLgqRc+d4cHAi5btI1kx5JhnLm11GIzxRlkE=
-github.com/kenshaw/snaker v0.4.1 h1:WVXmkdF+/WtmTHAkpeB8d/oEMR512AKal61rb8+NAsc=
-github.com/kenshaw/snaker v0.4.1/go.mod h1:SChlK7Kp/gq+iwlBqzIW4rimhwpw40HGqRtZbn38M+w=
 github.com/mattn/go-runewidth v0.0.16 h1:E5ScNMtiwvlvB5paMFdw9p4kSQzbXFikJ5SQO6TULQc=
 github.com/mattn/go-runewidth v0.0.16/go.mod h1:Jdepj2loyihRzMpdS35Xk/zdY8IAYHsh153qUoGf23w=
 github.com/mattn/go-sixel v0.0.5 h1:55w2FR5ncuhKhXrM5ly1eiqMQfZsnAHIpYNGZX03Cv8=
@@ -38,8 +36,8 @@ github.com/tdewolff/test v1.0.11-0.20240106005702-7de5f7df4739 h1:IkjBCtQOOjIn03
 github.com/tdewolff/test v1.0.11-0.20240106005702-7de5f7df4739/go.mod h1:XPuWBzvdUzhCuxWO1ojpXsyzsA5bFoS3tO/Q3kFuTG8=
 github.com/vbauerster/mpb/v8 v8.8.3 h1:dTOByGoqwaTJYPubhVz3lO5O6MK553XVgUo33LdnNsQ=
 github.com/vbauerster/mpb/v8 v8.8.3/go.mod h1:JfCCrtcMsJwP6ZwMn9e5LMnNyp3TVNpUWWkN+nd4EWk=
-github.com/xo/ox v0.0.0-20241126093501-c27873a277a2 h1:oHdm5GFXZvmEFpvw1KZu+lbOQQnc7x5NG7v+B6HimTA=
-github.com/xo/ox v0.0.0-20241126093501-c27873a277a2/go.mod h1:jIUSMqGbEAkOocnGZIOI+bVkKH0UK+VnVnJJ7L/MrGw=
+github.com/xo/ox v0.0.0-20241204023023-210f32e019a5 h1:tP6LxF2/0XDhj5Li7co+chw4sHoP6gRxwAm7VK6wy9s=
+github.com/xo/ox v0.0.0-20241204023023-210f32e019a5/go.mod h1:P+6CbW2koi1wfhvTg0ygy9Q5egZX2BoWrcZc+K3MLEg=
 github.com/yookoala/realpath v1.0.0 h1:7OA9pj4FZd+oZDsyvXWQvjn5oBdcHRTV44PpdMSuImQ=
 github.com/yookoala/realpath v1.0.0/go.mod h1:gJJMA9wuX7AcqLy1+ffPatSCySA1FQ2S8Ya9AIoYBpE=
 golang.org/x/sys v0.27.0 h1:wBqf8DvsY9Y/2P8gAfPDEYNuS30J4lPHJxXSb/nJZ+s=
