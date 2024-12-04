@@ -10,7 +10,7 @@ require (
 	github.com/kenshaw/httplog v0.5.0
 	github.com/kenshaw/rasterm v0.1.11
 	github.com/vbauerster/mpb/v8 v8.8.3
-	github.com/xo/ox v0.0.0-20241204023023-210f32e019a5
+	github.com/xo/ox v0.0.0-20241204044416-45e4d730981e
 )
 
 require (
