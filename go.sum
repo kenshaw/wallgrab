@@ -36,8 +36,8 @@ github.com/tdewolff/test v1.0.11-0.20240106005702-7de5f7df4739 h1:IkjBCtQOOjIn03
 github.com/tdewolff/test v1.0.11-0.20240106005702-7de5f7df4739/go.mod h1:XPuWBzvdUzhCuxWO1ojpXsyzsA5bFoS3tO/Q3kFuTG8=
 github.com/vbauerster/mpb/v8 v8.8.3 h1:dTOByGoqwaTJYPubhVz3lO5O6MK553XVgUo33LdnNsQ=
 github.com/vbauerster/mpb/v8 v8.8.3/go.mod h1:JfCCrtcMsJwP6ZwMn9e5LMnNyp3TVNpUWWkN+nd4EWk=
-github.com/xo/ox v0.0.0-20241204044416-45e4d730981e h1:SX+SIz4P77AfNm8HO5z8cUmm4L/6Edg6uR/A8VQPUDA=
-github.com/xo/ox v0.0.0-20241204044416-45e4d730981e/go.mod h1:P+6CbW2koi1wfhvTg0ygy9Q5egZX2BoWrcZc+K3MLEg=
+github.com/xo/ox v0.0.0-20241204233123-bcda5677f087 h1:hWUooMY47DB7x3g38Wc9SZ7MwxW25HLx5OjPr8gdVGM=
+github.com/xo/ox v0.0.0-20241204233123-bcda5677f087/go.mod h1:P+6CbW2koi1wfhvTg0ygy9Q5egZX2BoWrcZc+K3MLEg=
 github.com/yookoala/realpath v1.0.0 h1:7OA9pj4FZd+oZDsyvXWQvjn5oBdcHRTV44PpdMSuImQ=
 github.com/yookoala/realpath v1.0.0/go.mod h1:gJJMA9wuX7AcqLy1+ffPatSCySA1FQ2S8Ya9AIoYBpE=
 golang.org/x/sys v0.27.0 h1:wBqf8DvsY9Y/2P8gAfPDEYNuS30J4lPHJxXSb/nJZ+s=
