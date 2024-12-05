@@ -114,12 +114,17 @@ func (args *Args) doList(ctx context.Context) error {
 	if err := args.setup(ctx); err != nil {
 		return err
 	}
+	if args.Verbose {
+		if err := args.listLangs(ctx); err != nil {
+			return err
+		}
+	}
 	entries, err := args.getEntries(ctx)
 	if err != nil {
 		return err
 	}
 	for i, asset := range entries.Assets {
-		fmt.Printf("%3d: %s (%s)\n", i, asset.String(), asset.ShotID)
+		fmt.Printf("%3d: %s (%s)\n", i+1, asset.String(), asset.ShotID)
 	}
 	return nil
 }
@@ -399,6 +404,26 @@ func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 		return entries.Assets[i].String() < entries.Assets[j].String()
 	})
 	return entries, nil
+}
+
+func (args *Args) listLangs(ctx context.Context) error {
+	body, err := args.get(ctx, args.resURL, true)
+	if err != nil {
+		return err
+	}
+	defer body.Close()
+	for r := tar.NewReader(body); ; {
+		switch h, err := r.Next(); {
+		case err != nil && errors.Is(err, io.EOF):
+			return nil
+		case err != nil:
+			return err
+		case strings.HasPrefix(h.Name, "./TVIdleScreenStrings.bundle/") && strings.HasSuffix(h.Name, ".lproj/Localizable.nocache.strings"):
+			args.logger("lang: %s",
+				strings.TrimSuffix(strings.TrimPrefix(h.Name, "./TVIdleScreenStrings.bundle/"), ".lproj/Localizable.nocache.strings"),
+			)
+		}
+	}
 }
 
 func (args *Args) getTarFile(ctx context.Context, name string) ([]byte, error) {
