@@ -29,10 +29,10 @@ import (
 
 	"github.com/alitto/pond/v2"
 	"github.com/chromedp/verhist"
-	"github.com/groob/plist"
 	"github.com/kenshaw/diskcache"
 	"github.com/kenshaw/httplog"
 	"github.com/kenshaw/rasterm"
+	"github.com/micromdm/plist"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
 	"github.com/xo/ox"
