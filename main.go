@@ -45,7 +45,7 @@ func main() {
 		Streams:    4,
 		Lang:       "en",
 		Dest:       "~/Pictures/backgrounds/aerials",
-		logger:     func(string, ...interface{}) {},
+		logger:     func(string, ...any) {},
 	}
 	switch n := runtime.NumCPU(); {
 	case n > 6:
@@ -85,14 +85,14 @@ type Args struct {
 	Lang       string `ox:"language"`
 
 	resURL string
-	logger func(string, ...interface{})
+	logger func(string, ...any)
 }
 
 // setup sets up the args.
 func (args *Args) setup(ctx context.Context) error {
 	// set verbose logger
 	if args.Verbose {
-		args.logger = func(s string, v ...interface{}) {
+		args.logger = func(s string, v ...any) {
 			fmt.Fprintf(os.Stderr, s+"\n", v...)
 		}
 	}

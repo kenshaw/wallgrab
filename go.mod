@@ -7,10 +7,10 @@ require (
 	github.com/chromedp/verhist v0.3.7
 	github.com/kenshaw/diskcache v0.9.0
 	github.com/kenshaw/httplog v0.5.0
-	github.com/kenshaw/rasterm v0.1.11
+	github.com/kenshaw/rasterm v0.1.12
 	github.com/micromdm/plist v0.2.0
-	github.com/vbauerster/mpb/v8 v8.8.3
-	github.com/xo/ox v0.0.0-20241223151132-cbd813abcc58
+	github.com/vbauerster/mpb/v8 v8.9.1
+	github.com/xo/ox v0.0.0-20250107165807-6c6bbcec66d1
 )
 
 require (
@@ -25,7 +25,7 @@ require (
 	github.com/tdewolff/minify/v2 v2.21.2 // indirect
 	github.com/tdewolff/parse/v2 v2.7.19 // indirect
 	github.com/yookoala/realpath v1.0.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/term v0.27.0 // indirect
+	golang.org/x/sys v0.29.0 // indirect
+	golang.org/x/term v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 )
