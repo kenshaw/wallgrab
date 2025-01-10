@@ -10,7 +10,7 @@ require (
 	github.com/kenshaw/rasterm v0.1.12
 	github.com/micromdm/plist v0.2.0
 	github.com/vbauerster/mpb/v8 v8.9.1
-	github.com/xo/ox v0.0.0-20250107165807-6c6bbcec66d1
+	github.com/xo/ox v0.0.0-20250110212415-38a9465abcee
 )
 
 require (

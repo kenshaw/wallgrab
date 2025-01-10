@@ -145,7 +145,7 @@ func (args *Args) doShow(ctx context.Context) error {
 		return err
 	}
 	for _, asset := range entries.Assets {
-		fmt.Fprintf(os.Stdout, "%s (% .2f):\n", asset.String(), decor.SizeB1024(asset.Size))
+		fmt.Fprintf(os.Stdout, "%s (% .2z):\n", asset.String(), asset.Size)
 		body, err := args.get(ctx, asset.PreviewImage, true)
 		if err != nil {
 			return err
@@ -216,11 +216,11 @@ func (args *Args) getSizes(ctx context.Context, entries *Entries) error {
 			decor.OnCompleteMeta(
 				decor.CountersNoUnit("%d / %d", decor.WCSyncWidth),
 				func(s string) string {
-					var total int64
+					var total ox.Size
 					for _, asset := range entries.Assets {
 						total += asset.Size
 					}
-					return fmt.Sprintf("%s (% .2f)", s, decor.SizeB1024(total))
+					return fmt.Sprintf("%s (% .2z)", s, total)
 				},
 			),
 		),
@@ -254,7 +254,7 @@ func (args *Args) setDL(entries *Entries) error {
 		if asset.Size == 0 {
 			return fmt.Errorf("%s has size 0", asset.String())
 		}
-		size, out := int64(0), filepath.Join(baseDir, asset.String())
+		size, out := ox.Size(0), filepath.Join(baseDir, asset.String())
 		switch fi, err := os.Stat(out); {
 		case errors.Is(err, os.ErrNotExist):
 		case err != nil:
@@ -262,7 +262,7 @@ func (args *Args) setDL(entries *Entries) error {
 		case fi.IsDir():
 			return fmt.Errorf("%s is a directory", out)
 		default:
-			size = fi.Size()
+			size = ox.Size(fi.Size())
 		}
 		asset.Out, asset.DL = out, size != asset.Size
 		entries.Assets[i] = asset
@@ -275,7 +275,7 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 		return nil
 	}
 	// determine longest name and total size
-	n, total := len(entries.Assets[0].String()), int64(0)
+	n, total := len(entries.Assets[0].String()), ox.Size(0)
 	for _, asset := range entries.Assets[1:] {
 		if !asset.DL {
 			continue
@@ -295,7 +295,7 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 		if !asset.DL {
 			continue
 		}
-		args.logger("%s -> %s (% .2f)", asset.ShotID, asset.Out, decor.SizeB1024(asset.Size))
+		args.logger("%s -> %s (% .2z)", asset.ShotID, asset.Out, asset.Size)
 		wg.Add(1)
 		pool.SubmitErr(func() error {
 			defer wg.Done()
@@ -326,7 +326,7 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 			defer res.Body.Close()
 			// progress bar
 			bar := pb.New(
-				asset.Size,
+				int64(asset.Size),
 				mpb.BarStyle(),
 				mpb.PrependDecorators(
 					decor.Name(fmt.Sprintf("%- *s", n+2, asset.String()+": ")),
@@ -444,7 +444,7 @@ func (args *Args) getTarFile(ctx context.Context, name string) ([]byte, error) {
 }
 
 // getSize gets the size for an asset, by performing a HEAD against the url.
-func (args *Args) getSize(ctx context.Context, asset Asset) (int64, error) {
+func (args *Args) getSize(ctx context.Context, asset Asset) (ox.Size, error) {
 	args.logger("checking: %s %s", asset.ShotID, asset.String())
 	args.logger("HEAD %s", asset.URL4kSdr240FPS)
 	cl, err := args.client(ctx, true, true)
@@ -461,7 +461,7 @@ func (args *Args) getSize(ctx context.Context, asset Asset) (int64, error) {
 		return 0, err
 	}
 	defer res.Body.Close()
-	return res.ContentLength, nil
+	return ox.Size(res.ContentLength), nil
 }
 
 func (args *Args) writeM3U(entries *Entries) error {
@@ -662,7 +662,7 @@ type Asset struct {
 	SubcategoryNames []string `json:"-"`
 
 	// state fields (not in json)
-	Size int64         `json:"-"`
+	Size ox.Size       `json:"-"`
 	Out  string        `json:"-"`
 	DL   bool          `json:"-"`
 	Dur  time.Duration `json:"-"`
