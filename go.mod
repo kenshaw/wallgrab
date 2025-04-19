@@ -3,11 +3,11 @@ module github.com/kenshaw/wallgrab
 go 1.23.2
 
 require (
-	github.com/alitto/pond/v2 v2.3.2
+	github.com/alitto/pond/v2 v2.3.3
 	github.com/chromedp/verhist v0.3.8
-	github.com/kenshaw/diskcache v0.9.0
-	github.com/kenshaw/httplog v0.5.0
-	github.com/kenshaw/rasterm v0.1.12
+	github.com/kenshaw/diskcache v0.9.1
+	github.com/kenshaw/httplog v0.5.1
+	github.com/kenshaw/rasterm v0.1.13
 	github.com/micromdm/plist v0.2.1
 	github.com/vbauerster/mpb/v8 v8.9.3
 	github.com/xo/ox v0.0.0-20250130034615-44e38f949f5c
