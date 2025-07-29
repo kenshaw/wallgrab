@@ -80,6 +80,7 @@ type Args struct {
 	Quiet        bool   `ox:"enable quiet,short:q"`
 	MacOSVersion string `ox:"macOS version,name:macos-version"`
 	Streams      int    `ox:"concurrent streams"`
+	Sizes        bool   `ox:"show sizes"`
 	Dest         string `ox:"dest"`
 	M3u          string `ox:"m3u"`
 	UserAgent    string `ox:"user agent"`
@@ -124,8 +125,22 @@ func (args *Args) doList(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if args.Sizes {
+		if err := args.getSizes(ctx, entries); err != nil {
+			return err
+		}
+	}
+	var total ox.Size
 	for i, asset := range entries.Assets {
-		fmt.Printf("%3d: %s (%s)\n", i+1, asset.String(), asset.ShotID)
+		if args.Sizes {
+			fmt.Printf("%3d: %s (%s, %s)\n", i+1, asset.String(), asset.ShotID, asset.Size)
+			total += asset.Size
+		} else {
+			fmt.Printf("%3d: %s (%s) \n", i+1, asset.String(), asset.ShotID)
+		}
+	}
+	if args.Sizes {
+		fmt.Printf("total: %s\n", total)
 	}
 	return nil
 }
@@ -390,11 +405,15 @@ func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 		// add category names
 		asset.CategoryNames = make([]string, len(asset.Categories))
 		for i, id := range asset.Categories {
+			if args.MacOSVersion == "v26.0" && strings.HasPrefix(id, "A33A55D9-EDEA-4596-A850-") {
+				id = "A33A55D9-EDEA-4596-A850-6C10B54FBBB5"
+			}
 			s := names[entries.GetCategory(id)]
 			if s == "" {
 				s = id
 			}
 			asset.CategoryNames[i] = s
+			args.logger("cat %s %d: %s -> %q", asset.LocalizedNameKey, i, id, s)
 		}
 		// add subcategory names
 		asset.SubcategoryNames = make([]string, len(asset.Subcategories))
@@ -403,7 +422,11 @@ func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 			if s == "" {
 				s = id
 			}
+			if args.MacOSVersion == "v26.0" && id == "0DC99DD8-3386-4D1E-8878-C43E97EB710A" {
+				s = names["AerialSubcategoryTahoe"]
+			}
 			asset.SubcategoryNames[i] = s
+			args.logger("subcat %s %d: %s -> %q", asset.LocalizedNameKey, i, id, s)
 		}
 		entries.Assets[i] = asset
 	}
