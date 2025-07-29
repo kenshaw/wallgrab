@@ -13,6 +13,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"os"
@@ -20,12 +21,15 @@ import (
 	"os/user"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/alitto/pond/v2"
 	"github.com/chromedp/verhist"
@@ -40,12 +44,10 @@ import (
 
 func main() {
 	args := &Args{
-		MacosMajor: 15,
-		MacosMinor: 0,
-		Streams:    4,
-		Lang:       "en",
-		Dest:       "~/Pictures/backgrounds/aerials",
-		logger:     func(string, ...any) {},
+		MacOSVersion: "v26.0",
+		Lang:         "en",
+		Dest:         "~/Pictures/backgrounds/aerials",
+		logger:       func(string, ...any) {},
 	}
 	switch n := runtime.NumCPU(); {
 	case n > 6:
@@ -74,15 +76,14 @@ func main() {
 }
 
 type Args struct {
-	Verbose    bool   `ox:"enable verbose,short:v"`
-	Quiet      bool   `ox:"enable quiet,short:q"`
-	MacosMajor int    `ox:"macOS major version"`
-	MacosMinor int    `ox:"macOS minor version"`
-	Streams    int    `ox:"concurrent streams"`
-	Dest       string `ox:"dest"`
-	M3u        string `ox:"m3u"`
-	UserAgent  string `ox:"user agent"`
-	Lang       string `ox:"language"`
+	Verbose      bool   `ox:"enable verbose,short:v"`
+	Quiet        bool   `ox:"enable quiet,short:q"`
+	MacOSVersion string `ox:"macOS version,name:macos-version"`
+	Streams      int    `ox:"concurrent streams"`
+	Dest         string `ox:"dest"`
+	M3u          string `ox:"m3u"`
+	UserAgent    string `ox:"user agent"`
+	Lang         string `ox:"language"`
 
 	resURL string
 	logger func(string, ...any)
@@ -359,6 +360,12 @@ func (args *Args) getNames(ctx context.Context) (map[string]string, error) {
 	if err := plist.Unmarshal(buf, &m); err != nil {
 		return nil, err
 	}
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		m[k] = strings.Join(strings.FieldsFunc(m[k], func(r rune) bool {
+			return unicode.IsSpace(r) || !unicode.IsPrint(r)
+		}), " ")
+		args.logger("%s[%s]: %q", args.Lang, k, m[k])
+	}
 	return m, nil
 }
 
@@ -383,12 +390,20 @@ func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 		// add category names
 		asset.CategoryNames = make([]string, len(asset.Categories))
 		for i, id := range asset.Categories {
-			asset.CategoryNames[i] = names[entries.GetCategory(id)]
+			s := names[entries.GetCategory(id)]
+			if s == "" {
+				s = id
+			}
+			asset.CategoryNames[i] = s
 		}
 		// add subcategory names
 		asset.SubcategoryNames = make([]string, len(asset.Subcategories))
 		for i, id := range asset.Subcategories {
-			asset.SubcategoryNames[i] = names[entries.GetSubcategory(asset.Categories, id)]
+			s := names[entries.GetSubcategory(asset.Categories, id)]
+			if s == "" {
+				s = id
+			}
+			asset.SubcategoryNames[i] = s
 		}
 		entries.Assets[i] = asset
 	}
@@ -593,7 +608,8 @@ func (args *Args) getResURL(ctx context.Context) error {
 	if args.resURL != "" {
 		return nil
 	}
-	buf, err := args.getAll(ctx, fmt.Sprintf(resourcesConfigPlistURL, args.MacosMajor, args.MacosMinor), false)
+	version := nonNumRE.ReplaceAllString(strings.TrimPrefix(strings.ToLower(args.MacOSVersion), "v"), "-")
+	buf, err := args.getAll(ctx, fmt.Sprintf(resourcesConfigPlistURL, version), false)
 	if err != nil {
 		return err
 	}
@@ -606,6 +622,8 @@ func (args *Args) getResURL(ctx context.Context) error {
 	args.resURL = v.ResourcesURL
 	return nil
 }
+
+var nonNumRE = regexp.MustCompile(`[^0-9]`)
 
 // Entries is the top level container for entries.json.
 type Entries struct {
@@ -622,7 +640,7 @@ func (entries *Entries) GetCategory(id string) string {
 			return category.LocalizedNameKey
 		}
 	}
-	panic(fmt.Sprintf("could not find category %s", id))
+	return id
 }
 
 func (entries *Entries) GetSubcategory(categories []string, id string) string {
@@ -637,24 +655,25 @@ func (entries *Entries) GetSubcategory(categories []string, id string) string {
 			}
 		}
 	}
-	panic(fmt.Sprintf("could not find subcategory %s", id))
+	return id
 }
 
 // Asset contains asset information for entries.json.
 type Asset struct {
-	ID                 string            `json:"id"`
-	ShowInTopLevel     bool              `json:"showInTopLevel"`
-	ShotID             string            `json:"shotID"`
-	LocalizedNameKey   string            `json:"localizedNameKey"`
-	AccessibilityLabel string            `json:"accessibilityLabel"`
-	PointsOfInterest   map[string]string `json:"pointsOfInterest"`
-	PreviewImage       string            `json:"previewImage"`
-	IncludeInShuffle   bool              `json:"includeInShuffle"`
-	URL4kSdr240FPS     string            `json:"url-4K-SDR-240FPS"`
-	Subcategories      []string          `json:"subcategories"`
-	PreferredOrder     int               `json:"preferredOrder"`
-	Categories         []string          `json:"categories"`
-	Group              string            `json:"group"`
+	ID                  string            `json:"id"`
+	ShowInTopLevel      bool              `json:"showInTopLevel"`
+	ShotID              string            `json:"shotID"`
+	LocalizedNameKey    string            `json:"localizedNameKey"`
+	AccessibilityLabel  string            `json:"accessibilityLabel"`
+	PointsOfInterest    map[string]string `json:"pointsOfInterest"`
+	PreviewImage        string            `json:"previewImage"`
+	PreviewImage900x580 string            `json:"previewImage-900x580"`
+	IncludeInShuffle    bool              `json:"includeInShuffle"`
+	URL4kSdr240FPS      string            `json:"url-4K-SDR-240FPS"`
+	Subcategories       []string          `json:"subcategories"`
+	PreferredOrder      int               `json:"preferredOrder"`
+	Categories          []string          `json:"categories"`
+	Group               string            `json:"group"`
 
 	// names
 	Name             string   `json:"-"`
@@ -762,4 +781,4 @@ var (
 )
 
 // resourcesConfigPlistURL is the resources config plist URL.
-const resourcesConfigPlistURL = "https://configuration.apple.com/configurations/internetservices/aerials/resources-config-%d-%d.plist"
+const resourcesConfigPlistURL = "https://configuration.apple.com/configurations/internetservices/aerials/resources-config-%s.plist"
