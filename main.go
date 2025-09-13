@@ -135,15 +135,15 @@ func (args *Args) doList(ctx context.Context) error {
 	}
 	var total ox.Size
 	for i, asset := range entries.Assets {
+		var extra string
 		if args.Sizes {
-			fmt.Printf("%3d: %s (%s, %s)\n", i+1, asset.String(), asset.ShotID, asset.Size)
-			total += asset.Size
-		} else {
-			fmt.Printf("%3d: %s (%s) \n", i+1, asset.String(), asset.ShotID)
+			extra = fmt.Sprintf(", %s", asset.Size)
 		}
+		fmt.Printf("%3d: %s (%s%s)\n", i+1, asset.String(), asset.ShotID, extra)
+		total += asset.Size
 	}
 	if args.Sizes {
-		fmt.Printf("total: %s\n", total)
+		fmt.Println("total:", total)
 	}
 	return nil
 }
