@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -88,6 +90,7 @@ type Args struct {
 
 	resURL string
 	logger func(string, ...any)
+	err    error
 }
 
 // setup sets up the args.
@@ -162,7 +165,7 @@ func (args *Args) doShow(ctx context.Context) error {
 	}
 	for _, asset := range entries.Assets {
 		fmt.Fprintf(os.Stdout, "%s (% .2z):\n", asset.String(), asset.Size)
-		body, err := args.get(ctx, asset.PreviewImage, true)
+		body, err := args.get(ctx, asset.PreviewImage)
 		if err != nil {
 			return err
 		}
@@ -325,7 +328,7 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 			}
 			defer f.Close()
 			// build client and request
-			cl, err := args.client(ctx, true, false)
+			cl, err := args.client(ctx, false)
 			if err != nil {
 				return err
 			}
@@ -445,7 +448,7 @@ func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 }
 
 func (args *Args) listLangs(ctx context.Context) error {
-	body, err := args.get(ctx, args.resURL, true)
+	body, err := args.get(ctx, args.resURL)
 	if err != nil {
 		return err
 	}
@@ -465,7 +468,7 @@ func (args *Args) listLangs(ctx context.Context) error {
 }
 
 func (args *Args) getTarFile(ctx context.Context, name string) ([]byte, error) {
-	body, err := args.get(ctx, args.resURL, true)
+	body, err := args.get(ctx, args.resURL)
 	if err != nil {
 		return nil, err
 	}
@@ -485,7 +488,7 @@ func (args *Args) getTarFile(ctx context.Context, name string) ([]byte, error) {
 func (args *Args) getSize(ctx context.Context, asset Asset) (ox.Size, error) {
 	args.logger("checking: %s %s", asset.ShotID, asset.String())
 	args.logger("HEAD %s", asset.URL4kSdr240FPS)
-	cl, err := args.client(ctx, true, true)
+	cl, err := args.client(ctx, true)
 	if err != nil {
 		return 0, err
 	}
@@ -562,13 +565,29 @@ func (args *Args) buildUserAgent(ctx context.Context) error {
 	return err
 }
 
-// client returns the http client using the shared cache.
-func (args *Args) client(ctx context.Context, insecure, cache bool) (*http.Client, error) {
-	var transport http.RoundTripper = http.DefaultTransport.(*http.Transport).Clone()
-	if insecure {
-		transport.(*http.Transport).TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true,
+// init initializes the ca certs using during http requests.
+func (args *Args) init() error {
+	caCertsOnce.Do(func() {
+		if caCerts, args.err = x509.SystemCertPool(); args.err != nil {
+			return
 		}
+		if ok := caCerts.AppendCertsFromPEM(appleCABundlePEM); !ok {
+			args.err = errors.New("unable to append apple_ca_bundle.pem to system certs")
+			return
+		}
+	})
+	return args.err
+}
+
+// client returns the http client using the shared cache.
+func (args *Args) client(ctx context.Context, cache bool) (*http.Client, error) {
+	if err := args.init(); err != nil {
+		return nil, err
+	}
+	var transport http.RoundTripper = http.DefaultTransport.(*http.Transport).Clone()
+	transport.(*http.Transport).TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: false,
+		RootCAs:            caCerts,
 	}
 	if cache {
 		if args.Verbose {
@@ -600,9 +619,9 @@ func (args *Args) newReq(ctx context.Context, method, urlstr string, body io.Rea
 }
 
 // get returns the url using the shared cache.
-func (args *Args) get(ctx context.Context, urlstr string, insecure bool) (io.ReadCloser, error) {
-	args.logger("GET %s insecure:%t", urlstr, insecure)
-	cl, err := args.client(ctx, insecure, true)
+func (args *Args) get(ctx context.Context, urlstr string) (io.ReadCloser, error) {
+	args.logger("GET %s", urlstr)
+	cl, err := args.client(ctx, true)
 	if err != nil {
 		return nil, err
 	}
@@ -617,8 +636,8 @@ func (args *Args) get(ctx context.Context, urlstr string, insecure bool) (io.Rea
 	return res.Body, nil
 }
 
-func (args *Args) getAll(ctx context.Context, urlstr string, insecure bool) ([]byte, error) {
-	body, err := args.get(ctx, urlstr, insecure)
+func (args *Args) getAll(ctx context.Context, urlstr string) ([]byte, error) {
+	body, err := args.get(ctx, urlstr)
 	if err != nil {
 		return nil, err
 	}
@@ -632,7 +651,7 @@ func (args *Args) getResURL(ctx context.Context) error {
 		return nil
 	}
 	version := nonNumRE.ReplaceAllString(strings.TrimPrefix(strings.ToLower(args.MacOSVersion), "v"), "-")
-	buf, err := args.getAll(ctx, fmt.Sprintf(resourcesConfigPlistURL, version), false)
+	buf, err := args.getAll(ctx, fmt.Sprintf(resourcesConfigPlistURL, version))
 	if err != nil {
 		return err
 	}
@@ -803,5 +822,14 @@ var (
 	ffprobeOnce sync.Once
 )
 
+// ca bundle vars.
+var (
+	caCerts     *x509.CertPool
+	caCertsOnce sync.Once
+)
+
 // resourcesConfigPlistURL is the resources config plist URL.
 const resourcesConfigPlistURL = "https://configuration.apple.com/configurations/internetservices/aerials/resources-config-%s.plist"
+
+//go:embed apple_ca_bundle.pem
+var appleCABundlePEM []byte
