@@ -4,8 +4,8 @@ github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d h1:licZJFw2RwpH
 github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d/go.mod h1:asat636LX7Bqt5lYEZ27JNDcqxfjdBQuJ/MM4CN/Lzo=
 github.com/alitto/pond/v2 v2.5.0 h1:vPzS5GnvSDRhWQidmj2djHllOmjFExVFbDGCw1jdqDw=
 github.com/alitto/pond/v2 v2.5.0/go.mod h1:xkjYEgQ05RSpWdfSd1nM3OVv7TBhLdy7rMp3+2Nq+yE=
-github.com/chromedp/verhist v0.3.9 h1:VEQCk9/hhCGCo1+t6a2Ou8671+TrTRQP+Ns+eCanjNc=
-github.com/chromedp/verhist v0.3.9/go.mod h1:aDyWGa3bIEjjGqoxn37DmAXYAFc1gJ7wpuIMcJ3eFeo=
+github.com/chromedp/verhist v0.3.11 h1:XufNeH7u3XZkj0X51iVS3hDLDRaNLdkrUl7TyC8M7wc=
+github.com/chromedp/verhist v0.3.11/go.mod h1:aDyWGa3bIEjjGqoxn37DmAXYAFc1gJ7wpuIMcJ3eFeo=
 github.com/gobwas/glob v0.2.3 h1:A4xDbljILXROh+kObIiy5kIaPYD8e96x1tgBhUI5J+Y=
 github.com/gobwas/glob v0.2.3/go.mod h1:d3Ez4x06l9bZtSvzIay5+Yzi0fmZzPgnTbPcKjJAkT8=
 github.com/kenshaw/diskcache v0.9.3 h1:LH+utxMZ/QYTVYbtGzB5eZRMomvYMhzT0Z7N8/vAgzc=

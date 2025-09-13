@@ -6,7 +6,7 @@ toolchain go1.24.5
 
 require (
 	github.com/alitto/pond/v2 v2.5.0
-	github.com/chromedp/verhist v0.3.9
+	github.com/chromedp/verhist v0.3.11
 	github.com/kenshaw/diskcache v0.9.3
 	github.com/kenshaw/httplog v0.5.1
 	github.com/kenshaw/rasterm v0.1.15

@@ -558,8 +558,8 @@ func (args *Args) buildUserAgent(ctx context.Context) error {
 	}
 	args.UserAgent, err = verhist.UserAgent(
 		ctx,
-		"linux",
-		"stable",
+		verhist.PlatformString(),
+		verhist.Stable.String(),
 		verhist.WithTransport(cache),
 	)
 	return err
