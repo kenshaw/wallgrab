@@ -46,7 +46,7 @@ import (
 
 func main() {
 	args := &Args{
-		MacOSVersion: "v26.0",
+		MacOSVersion: "v27.0",
 		Lang:         "en",
 		Dest:         "~/Pictures/backgrounds/aerials",
 		logger:       func(string, ...any) {},
@@ -88,9 +88,10 @@ type Args struct {
 	UserAgent    string `ox:"user agent"`
 	Lang         string `ox:"language"`
 
-	resURL string
-	logger func(string, ...any)
-	err    error
+	resURL   string
+	loctable map[string]map[string]any
+	logger   func(string, ...any)
+	err      error
 }
 
 // setup sets up the args.
@@ -102,13 +103,13 @@ func (args *Args) setup(ctx context.Context) error {
 		}
 	}
 	if err := args.buildUserAgent(ctx); err != nil {
-		return err
+		return fmt.Errorf("unable to build user agent: %w", err)
 	}
 	now := time.Now()
 	args.logger("user-agent: %s (%s)", args.UserAgent, time.Since(now))
 	now = time.Now()
 	if err := args.getResURL(ctx); err != nil {
-		return err
+		return fmt.Errorf("unable to get res url: %w", err)
 	}
 	args.logger("resources: %s (%s)", args.resURL, time.Since(now))
 	return nil
@@ -117,20 +118,20 @@ func (args *Args) setup(ctx context.Context) error {
 // doList lists the available assets.
 func (args *Args) doList(ctx context.Context) error {
 	if err := args.setup(ctx); err != nil {
-		return err
+		return fmt.Errorf("unable to setup: %w", err)
 	}
 	if args.Verbose {
 		if err := args.listLangs(ctx); err != nil {
-			return err
+			return fmt.Errorf("unable to list langs: %w", err)
 		}
 	}
 	entries, err := args.getEntries(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to get entries: %w", err)
 	}
 	if args.Sizes {
 		if err := args.getSizes(ctx, entries); err != nil {
-			return err
+			return fmt.Errorf("unable to get sizes: %w", err)
 		}
 	}
 	var total ox.Size
@@ -154,20 +155,20 @@ func (args *Args) doShow(ctx context.Context) error {
 		return rasterm.ErrTermGraphicsNotAvailable
 	}
 	if err := args.setup(ctx); err != nil {
-		return err
+		return fmt.Errorf("unable to setup: %w", err)
 	}
 	entries, err := args.getEntries(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to get entries: %w", err)
 	}
 	if err := args.getSizes(ctx, entries); err != nil {
-		return err
+		return fmt.Errorf("unable to get sizes: %w", err)
 	}
 	for _, asset := range entries.Assets {
 		fmt.Fprintf(os.Stdout, "%s (% .2z):\n", asset.String(), asset.Size)
 		body, err := args.get(ctx, asset.PreviewImage)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to get preview image: %w", err)
 		}
 		img, _, err := image.Decode(body)
 		if err != nil {
@@ -187,28 +188,28 @@ func (args *Args) doShow(ctx context.Context) error {
 func (args *Args) doGrab(ctx context.Context) error {
 	start := time.Now()
 	if err := args.setup(ctx); err != nil {
-		return err
+		return fmt.Errorf("unable to setup: %w", err)
 	}
 	entries, err := args.getEntries(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to get entries: %w", err)
 	}
 	if err := args.getSizes(ctx, entries); err != nil {
-		return err
+		return fmt.Errorf("unable to get sizes: %w", err)
 	}
 	if err := args.setDL(entries); err != nil {
-		return err
+		return fmt.Errorf("unable to set entries download: %w", err)
 	}
 	if err := args.getAssets(ctx, entries); err != nil {
-		return err
+		return fmt.Errorf("unable to get assets: %w", err)
 	}
 	// TODO: move ffprobe duration read into actual asset read, and put as part
 	// TODO: of workload, to make go fast, vroom VROOM VROOOOOOOOOOOOM
 	if err := args.addDur(ctx, entries); err != nil {
-		return err
+		return fmt.Errorf("unable to add ffmpeg duration: %w", err)
 	}
 	if err := args.writeM3U(entries); err != nil {
-		return err
+		return fmt.Errorf("unable to write m3u: %w", err)
 	}
 	args.logger("total: %s", time.Since(start))
 	return nil
@@ -358,7 +359,10 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 				),
 			)
 			// copy
-			r := bar.ProxyReader(res.Body)
+			r, err := bar.ProxyReader(res.Body)
+			if err != nil {
+				return err
+			}
 			defer r.Close()
 			_, err = io.Copy(f, r)
 			return err
@@ -369,27 +373,88 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 	return nil
 }
 
-func (args *Args) getNames(ctx context.Context) (map[string]string, error) {
-	buf, err := args.getTarFile(ctx, "./TVIdleScreenStrings.bundle/"+args.Lang+".lproj/Localizable.nocache.strings")
-	if err != nil {
-		return nil, fmt.Errorf("could not find plist for language %s", args.Lang)
+// getLoctable returns the decoded localization table, keyed by language and
+// then by localization key.
+func (args *Args) getLoctable(ctx context.Context) (map[string]map[string]any, error) {
+	if args.loctable != nil {
+		return args.loctable, nil
 	}
-	m := make(map[string]string)
-	if err := plist.Unmarshal(buf, &m); err != nil {
+	buf, err := args.getTarFile(ctx, loctableName)
+	if err != nil {
 		return nil, err
 	}
-	for _, k := range slices.Sorted(maps.Keys(m)) {
-		m[k] = strings.Join(strings.FieldsFunc(m[k], func(r rune) bool {
+	// the table is a binary plist, and carries a LocProvenance entry alongside
+	// the languages whose values are not strings
+	loctable := make(map[string]map[string]any)
+	if err := plist.Unmarshal(buf, &loctable); err != nil {
+		return nil, err
+	}
+	delete(loctable, "LocProvenance")
+	args.loctable = loctable
+	return loctable, nil
+}
+
+// getNames returns the localized names for the language.
+func (args *Args) getNames(ctx context.Context) (map[string]string, error) {
+	loctable, err := args.getLoctable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lang, err := matchLang(slices.Sorted(maps.Keys(loctable)), args.Lang)
+	if err != nil {
+		return nil, err
+	}
+	args.logger("lang: %s", lang)
+	m := make(map[string]string)
+	for _, k := range slices.Sorted(maps.Keys(loctable[lang])) {
+		s, ok := loctable[lang][k].(string)
+		if !ok {
+			continue
+		}
+		m[k] = strings.Join(strings.FieldsFunc(s, func(r rune) bool {
 			return unicode.IsSpace(r) || !unicode.IsPrint(r)
 		}), " ")
-		args.logger("%s[%s]: %q", args.Lang, k, m[k])
+		args.logger("%s[%s]: %q", lang, k, m[k])
 	}
 	return m, nil
 }
 
+// matchLang matches the language against the available languages, either
+// exactly, case insensitively, or by unique language prefix (ie "zh" matches
+// nothing, as "zh_CN", "zh_HK", and "zh_TW" are all available).
+func matchLang(langs []string, lang string) (string, error) {
+	name := strings.ReplaceAll(lang, "-", "_")
+	if slices.Contains(langs, name) {
+		return name, nil
+	}
+	lower := strings.ToLower(name)
+	var matched []string
+	for _, s := range langs {
+		if v := strings.ToLower(s); v == lower || strings.HasPrefix(v, lower+"_") {
+			matched = append(matched, s)
+		}
+	}
+	switch {
+	case len(matched) == 1:
+		return matched[0], nil
+	case len(matched) > 1:
+		return "", fmt.Errorf("ambiguous language %q (matches: %s)", lang, strings.Join(matched, " "))
+	}
+	return "", fmt.Errorf("unknown language %q (available: %s)", lang, strings.Join(langs, " "))
+}
+
+// localized returns the localized string for the key, falling back to the key
+// when the language has no string for it.
+func localized(names map[string]string, key string) string {
+	if s := names[key]; s != "" {
+		return s
+	}
+	return key
+}
+
 // getEntries gets the asset entries.
 func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
-	buf, err := args.getTarFile(ctx, "./entries.json")
+	buf, err := args.getTarFile(ctx, entriesName)
 	if err != nil {
 		return nil, err
 	}
@@ -404,34 +469,41 @@ func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 		return nil, err
 	}
 	for i, asset := range entries.Assets {
-		asset.Name = names[asset.LocalizedNameKey]
+		asset.Name = localized(names, asset.LocalizedNameKey)
+		// variant assets (ie the dynamic wallpapers) share a localized name for
+		// each orientation, so qualify with the orientation
+		if asset.Variant != nil && asset.Variant.Orientation != "" {
+			asset.Name += " (" + asset.Variant.Orientation + ")"
+		}
 		// add category names
 		asset.CategoryNames = make([]string, len(asset.Categories))
 		for i, id := range asset.Categories {
-			if args.MacOSVersion == "v26.0" && strings.HasPrefix(id, "A33A55D9-EDEA-4596-A850-") {
-				id = "A33A55D9-EDEA-4596-A850-6C10B54FBBB5"
-			}
-			s := names[entries.GetCategory(id)]
-			if s == "" {
-				s = id
-			}
+			s := localized(names, entries.GetCategory(id))
 			asset.CategoryNames[i] = s
 			args.logger("cat %s %d: %s -> %q", asset.LocalizedNameKey, i, id, s)
 		}
 		// add subcategory names
 		asset.SubcategoryNames = make([]string, len(asset.Subcategories))
 		for i, id := range asset.Subcategories {
-			s := names[entries.GetSubcategory(asset.Categories, id)]
-			if s == "" {
-				s = id
-			}
-			if args.MacOSVersion == "v26.0" && id == "0DC99DD8-3386-4D1E-8878-C43E97EB710A" {
-				s = names["AerialSubcategoryTahoe"]
-			}
+			s := localized(names, entries.GetSubcategory(asset.Categories, id))
 			asset.SubcategoryNames[i] = s
 			args.logger("subcat %s %d: %s -> %q", asset.LocalizedNameKey, i, id, s)
 		}
 		entries.Assets[i] = asset
+	}
+	// some languages translate distinct assets to the same name (ie "Hong Kong
+	// Skyline" and "Hong Kong Horizon" share a translation in ar and sl), so
+	// qualify any collision with the asset's shot id
+	counts := make(map[string]int)
+	for _, asset := range entries.Assets {
+		counts[asset.String()]++
+	}
+	for i, asset := range entries.Assets {
+		if name := asset.String(); counts[name] > 1 {
+			args.logger("%q is not unique, qualifying with %s", name, asset.ShotID)
+			asset.Name += " (" + asset.ShotID + ")"
+			entries.Assets[i] = asset
+		}
 	}
 	m := make(map[string]bool)
 	for _, asset := range entries.Assets {
@@ -448,23 +520,12 @@ func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 }
 
 func (args *Args) listLangs(ctx context.Context) error {
-	body, err := args.get(ctx, args.resURL)
+	loctable, err := args.getLoctable(ctx)
 	if err != nil {
 		return err
 	}
-	defer body.Close()
-	for r := tar.NewReader(body); ; {
-		switch h, err := r.Next(); {
-		case err != nil && errors.Is(err, io.EOF):
-			return nil
-		case err != nil:
-			return err
-		case strings.HasPrefix(h.Name, "./TVIdleScreenStrings.bundle/") && strings.HasSuffix(h.Name, ".lproj/Localizable.nocache.strings"):
-			args.logger("lang: %s",
-				strings.TrimSuffix(strings.TrimPrefix(h.Name, "./TVIdleScreenStrings.bundle/"), ".lproj/Localizable.nocache.strings"),
-			)
-		}
-	}
+	args.logger("langs: %s", strings.Join(slices.Sorted(maps.Keys(loctable)), " "))
+	return nil
 }
 
 func (args *Args) getTarFile(ctx context.Context, name string) ([]byte, error) {
@@ -474,11 +535,13 @@ func (args *Args) getTarFile(ctx context.Context, name string) ([]byte, error) {
 	}
 	defer body.Close()
 	args.logger("reading tar for: %s", name)
-	for r := tar.NewReader(body); ; {
+	for n, r := strings.TrimPrefix(name, "./"), tar.NewReader(body); ; {
 		switch h, err := r.Next(); {
+		case errors.Is(err, io.EOF):
+			return nil, fmt.Errorf("%s does not contain %s", args.resURL, name)
 		case err != nil:
 			return nil, err
-		case h.Name == name:
+		case strings.TrimPrefix(h.Name, "./") == n:
 			return io.ReadAll(r)
 		}
 	}
@@ -702,20 +765,21 @@ func (entries *Entries) GetSubcategory(categories []string, id string) string {
 
 // Asset contains asset information for entries.json.
 type Asset struct {
-	ID                  string            `json:"id"`
-	ShowInTopLevel      bool              `json:"showInTopLevel"`
-	ShotID              string            `json:"shotID"`
-	LocalizedNameKey    string            `json:"localizedNameKey"`
-	AccessibilityLabel  string            `json:"accessibilityLabel"`
-	PointsOfInterest    map[string]string `json:"pointsOfInterest"`
-	PreviewImage        string            `json:"previewImage"`
-	PreviewImage900x580 string            `json:"previewImage-900x580"`
-	IncludeInShuffle    bool              `json:"includeInShuffle"`
-	URL4kSdr240FPS      string            `json:"url-4K-SDR-240FPS"`
-	Subcategories       []string          `json:"subcategories"`
-	PreferredOrder      int               `json:"preferredOrder"`
-	Categories          []string          `json:"categories"`
-	Group               string            `json:"group"`
+	ID                 string            `json:"id"`
+	ShowInTopLevel     bool              `json:"showInTopLevel"`
+	ShotID             string            `json:"shotID"`
+	LocalizedNameKey   string            `json:"localizedNameKey"`
+	AccessibilityLabel string            `json:"accessibilityLabel"`
+	PointsOfInterest   map[string]string `json:"pointsOfInterest"`
+	PreviewImage       string            `json:"previewImage"`
+	IncludeInShuffle   bool              `json:"includeInShuffle"`
+	URL4kSdr240FPS     string            `json:"url-4K-SDR-240FPS"`
+	Subcategories      []string          `json:"subcategories"`
+	PreferredOrder     int               `json:"preferredOrder"`
+	Categories         []string          `json:"categories"`
+	Group              string            `json:"group"`
+	Variant            *Variant          `json:"variant"`
+	VideoGravity       string            `json:"videoGravity"`
 
 	// names
 	Name             string   `json:"-"`
@@ -737,6 +801,13 @@ func (a Asset) String() string {
 	return strings.Join(a.Names(), "/") + path.Ext(a.URL4kSdr240FPS)
 }
 
+// Variant contains the variant information for assets available in more than
+// one appearance or orientation (ie the dynamic wallpapers).
+type Variant struct {
+	Appearance  string `json:"appearance"`
+	Orientation string `json:"orientation"`
+}
+
 // Category contains category information for entries.json.
 type Category struct {
 	ID                      string        `json:"id"`
@@ -756,6 +827,7 @@ type Subcategory struct {
 	PreferredOrder          int    `json:"preferredOrder"`
 	LocalizedDescriptionKey string `json:"localizedDescriptionKey"`
 	RepresentativeAssetID   string `json:"representativeAssetID"`
+	CombineVariants         bool   `json:"combineVariants"`
 }
 
 // newDiskCache creates the a new disk cache.
@@ -828,8 +900,16 @@ var (
 	caCertsOnce sync.Once
 )
 
-// resourcesConfigPlistURL is the resources config plist URL.
-const resourcesConfigPlistURL = "https://configuration.apple.com/configurations/internetservices/aerials/resources-config-%s.plist"
+const (
+	// resourcesConfigPlistURL is the resources config plist URL.
+	resourcesConfigPlistURL = "https://configuration.apple.com/configurations/internetservices/aerials/resources-config-%s.plist"
+	// entriesName is the name of the asset manifest within the resources tar.
+	entriesName = "entries.json"
+	// loctableName is the name of the localization table within the resources
+	// tar. Prior to macOS v27 this was a Localizable.nocache.strings plist per
+	// language, alongside the bundle's Contents.
+	loctableName = "TVIdleScreenStrings.bundle/Contents/Resources/Localizable.nocache.loctable"
+)
 
 //go:embed apple_ca_bundle.pem
 var appleCABundlePEM []byte
