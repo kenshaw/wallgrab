@@ -78,19 +78,25 @@ commands that control it.
 
 ### Releases
 
-Run `wallgrab versions` to list the sets that wallgrab can download. Apple
-publishes a separate set for each major OS release, and keeps the older sets
-in place. `--version` chooses the set, and accepts a bare number:
+Apple publishes a separate set of wallpapers for each major OS release, and
+keeps the older sets in place. wallgrab downloads the newest set by default.
+Run `wallgrab versions` to list them all. `--version` chooses an older set,
+and accepts a bare number:
 
 | Release | Wallpapers | Languages |
 | --- | --- | --- |
 | `v14.0` | 134 | 39 |
 | `v15.0` | 137 | 40 |
 | `v26.0` | 156 | 43 |
-| `v27.0` (default) | 164 | 44 |
+| `v27.0` (newest) | 164 | 44 |
 
 `--version 27`, `--version 27.0`, and `--version v27.0` all mean the same
 release.
+
+wallgrab reads the list of OS versions from Apple's device management feed at
+`https://gdmf.apple.com/v2/pmv`, so a new macOS release needs no change here.
+Apple lists a version before it publishes the wallpapers for it, so wallgrab
+walks back from the newest version until a set answers.
 
 Apple changed the layout of these files at v26. Up to v15 the names are one
 plist per language, and from v26 they are one table that holds every language.

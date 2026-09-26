@@ -44,11 +44,10 @@ import (
 
 func main() {
 	args := &Args{
-		OS:      "macos",
-		Version: "v27.0",
-		Lang:    "en",
-		Dest:    "~/Pictures/backgrounds/aerials",
-		logger:  func(string, ...any) {},
+		OS:     "macos",
+		Lang:   "en",
+		Dest:   "~/Pictures/backgrounds/aerials",
+		logger: func(string, ...any) {},
 	}
 	switch n := runtime.NumCPU(); {
 	case n > 6:
@@ -83,7 +82,7 @@ func main() {
 type Args struct {
 	Verbose   bool   `ox:"write progress and requests to stderr,short:v"`
 	OS        string `ox:"operating system to get wallpapers for,name:os"`
-	Version   string `ox:"major OS version to get wallpapers for"`
+	Version   string `ox:"major OS version to get wallpapers for\\, newest by default"`
 	Streams   int    `ox:"number of downloads to run at the same time"`
 	Sizes     bool   `ox:"show the size of each wallpaper"`
 	Dest      string `ox:"directory to write the wallpapers to"`
@@ -93,6 +92,7 @@ type Args struct {
 	Clear     bool   `ox:"delete the cache directory before running"`
 
 	resURL    string
+	majors    []int
 	pool      *x509.CertPool
 	resources *Resources
 	loctable  map[string]map[string]any
@@ -108,7 +108,6 @@ func (args *Args) setup(ctx context.Context) error {
 			fmt.Fprintf(os.Stderr, s+"\n", v...)
 		}
 	}
-	args.Version = normalizeVersion(args.Version)
 	if args.Clear {
 		if err := args.clearCache(ctx); err != nil {
 			return fmt.Errorf("unable to clear cache: %w", err)
@@ -132,23 +131,33 @@ func (args *Args) setup(ctx context.Context) error {
 	return nil
 }
 
-// doVersions writes the OS versions that have wallpapers to stdout. It reads
-// the built in list, and does not use the network.
+// doVersions writes the OS versions that have wallpapers to stdout.
 func (args *Args) doVersions(ctx context.Context) error {
-	def, err := majorVersion(args.Version)
+	if err := args.setup(ctx); err != nil {
+		return fmt.Errorf("unable to setup: %w", err)
+	}
+	name, err := matchOS(args.OS)
 	if err != nil {
 		return err
 	}
-	n := 0
-	for _, release := range releases {
-		n = max(n, len(release.String()))
+	majors, err := args.getMajors(ctx)
+	if err != nil {
+		return err
 	}
-	for _, release := range releases {
-		var extra string
-		if release.Major == def {
-			extra = "  (default)"
+	newest := true
+	for _, major := range majors {
+		release, err := args.release(ctx, name, major)
+		if err != nil {
+			return err
 		}
-		fmt.Printf("%- *s  %s%s\n", n, release.String(), strings.Join(operatingSystems, ", "), extra)
+		if release.ResURL == "" {
+			continue
+		}
+		var extra string
+		if newest {
+			extra, newest = "  (newest)", false
+		}
+		fmt.Printf("%-7s %s%s\n", release, strings.Join(operatingSystems, ", "), extra)
 	}
 	return nil
 }
@@ -918,6 +927,9 @@ func (args *Args) get(ctx context.Context, urlstr string) (io.ReadCloser, error)
 	}
 	if res.StatusCode != http.StatusOK {
 		_ = res.Body.Close()
+		if res.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("%s: %w", urlstr, errNotFound)
+		}
 		return nil, fmt.Errorf("%s: %s", urlstr, res.Status)
 	}
 	return res.Body, nil
@@ -937,25 +949,12 @@ func (args *Args) getResURL(ctx context.Context) error {
 	if args.resURL != "" {
 		return nil
 	}
-	release, err := matchRelease(args.OS, args.Version)
+	release, err := args.resolve(ctx, args.OS, args.Version)
 	if err != nil {
 		return err
 	}
-	args.logger("release: %s %d (%s)", release.OS, release.Major, release.Config)
-	buf, err := args.getAll(ctx, release.Config)
-	if err != nil {
-		return err
-	}
-	var v struct {
-		ResourcesURL string `plist:"resources-url"`
-	}
-	if err := plist.Unmarshal(buf, &v); err != nil {
-		return fmt.Errorf("unable to read %s: %w", release.Config, err)
-	}
-	if v.ResourcesURL == "" {
-		return fmt.Errorf("%s holds no resources-url", release.Config)
-	}
-	args.resURL = v.ResourcesURL
+	args.logger("release: %s %s (%s)", release.OS, release, release.Config)
+	args.Version, args.resURL = release.String(), release.ResURL
 	return nil
 }
 
@@ -966,27 +965,10 @@ type Release struct {
 	OS string
 	// Major is the major version of the release.
 	Major int
-	// Config is the URL of the configuration plist, which names the resources
-	// tar for the release.
+	// Config is the URL of the configuration plist for the release.
 	Config string
-}
-
-// releases lists the releases that Apple publishes a configuration for. Apple
-// keeps an old configuration in place after a new one appears, so a release
-// stays in this list once it is added.
-//
-// tvOS shares the configuration of macOS. The two operating systems read the
-// same aerial wallpapers from the same tar, and the bundle of localized names
-// inside that tar is still called TVIdleScreenStrings. Apple publishes no
-// separate tvOS path.
-var releases = []Release{
-	// macOS v14 has no configuration of its own. The unversioned
-	// configuration names the v14 tar, and is what a client that sends no
-	// version receives.
-	{OS: "macos", Major: 14, Config: resourcesConfigURL + "resources-config.plist"},
-	{OS: "macos", Major: 15, Config: resourcesConfigURL + "resources-config-15-0.plist"},
-	{OS: "macos", Major: 26, Config: resourcesConfigURL + "resources-config-26-0.plist"},
-	{OS: "macos", Major: 27, Config: resourcesConfigURL + "resources-config-27-0.plist"},
+	// ResURL is the URL of the resources tar, read from the configuration.
+	ResURL string
 }
 
 // String satisfies the fmt.Stringer interface.
@@ -994,50 +976,148 @@ func (release Release) String() string {
 	return fmt.Sprintf("v%d.0", release.Major)
 }
 
-// operatingSystems are the operating system names that wallgrab accepts. tvOS
-// reads the macOS configuration. See the note on releases.
+// operatingSystems are the operating system names that wallgrab accepts.
+//
+// tvOS shares the configuration of macOS. The two operating systems read the
+// same aerial wallpapers from the same tar, and the bundle of localized names
+// inside that tar is still called TVIdleScreenStrings. Apple publishes no
+// separate tvOS path.
 var operatingSystems = []string{"macos", "tvos"}
 
-// normalizeVersion adds the leading "v" to a version that starts with a
-// number, so that "27" and "27.0" read as "v27" and "v27.0".
-func normalizeVersion(version string) string {
-	switch v := strings.TrimSpace(version); {
-	case v == "":
-		return v
-	case v[0] >= '0' && v[0] <= '9':
-		return "v" + v
-	case v[0] == 'V':
-		return "v" + v[1:]
+// matchOS returns the operating system name that names the configuration.
+func matchOS(osName string) (string, error) {
+	switch name := strings.ToLower(strings.TrimSpace(osName)); name {
+	case "macos", "tvos":
+		// tvOS reads the macOS configuration. See operatingSystems.
+		return "macos", nil
 	default:
-		return v
+		return "", fmt.Errorf("unknown operating system %q (available: %s)", osName, strings.Join(operatingSystems, " "))
 	}
 }
 
-// matchRelease returns the release for the operating system and version.
-func matchRelease(osName, version string) (Release, error) {
-	osName = strings.ToLower(strings.TrimSpace(osName))
-	// tvOS reads the macOS configuration. See the note on releases.
-	if osName == "tvos" {
-		osName = "macos"
+// configURL returns the URL of the configuration plist for the major version.
+// It returns an empty string for a version that Apple publishes no aerial
+// wallpapers for.
+func configURL(major int) string {
+	switch {
+	case major == 14:
+		// macOS v14 has no configuration of its own. The unversioned
+		// configuration names the v14 tar, and is what a client that sends no
+		// version receives.
+		return resourcesConfigURL + "resources-config.plist"
+	case major >= 15:
+		return fmt.Sprintf("%sresources-config-%d-0.plist", resourcesConfigURL, major)
+	}
+	return ""
+}
+
+// resolve returns the release for the operating system and version. An empty
+// version returns the newest release that Apple publishes wallpapers for.
+func (args *Args) resolve(ctx context.Context, osName, version string) (Release, error) {
+	name, err := matchOS(osName)
+	if err != nil {
+		return Release{}, err
+	}
+	if strings.TrimSpace(version) == "" {
+		return args.latest(ctx, name)
 	}
 	major, err := majorVersion(version)
 	if err != nil {
 		return Release{}, err
 	}
-	var known []string
-	for _, release := range releases {
-		if release.OS != osName {
-			continue
-		}
-		if release.Major == major {
+	release, err := args.release(ctx, name, major)
+	switch {
+	case err != nil:
+		return Release{}, err
+	case release.ResURL == "":
+		return Release{}, fmt.Errorf("Apple publishes no aerial wallpapers for %s v%d (run wallgrab versions)", name, major)
+	}
+	return release, nil
+}
+
+// latest returns the newest release that Apple publishes wallpapers for. Apple
+// lists a new OS version before it publishes the wallpapers for it, so this
+// walks back from the newest version until a release answers.
+func (args *Args) latest(ctx context.Context, name string) (Release, error) {
+	majors, err := args.getMajors(ctx)
+	if err != nil {
+		return Release{}, err
+	}
+	for _, major := range majors {
+		switch release, err := args.release(ctx, name, major); {
+		case err != nil:
+			return Release{}, err
+		case release.ResURL != "":
 			return release, nil
 		}
-		known = append(known, release.String())
+		args.logger("%s v%d has no aerial wallpapers yet", name, major)
 	}
-	if len(known) == 0 {
-		return Release{}, fmt.Errorf("unknown operating system %q (available: %s)", osName, strings.Join(operatingSystems, " "))
+	return Release{}, fmt.Errorf("Apple publishes no aerial wallpapers for %s", name)
+}
+
+// release returns the release for the major version. The ResURL of the
+// returned release is empty when Apple publishes no wallpapers for it.
+func (args *Args) release(ctx context.Context, name string, major int) (Release, error) {
+	release := Release{OS: name, Major: major, Config: configURL(major)}
+	if release.Config == "" {
+		return release, nil
 	}
-	return Release{}, fmt.Errorf("Apple publishes no aerial wallpapers for %s v%d (available: %s)", osName, major, strings.Join(known, " "))
+	buf, err := args.getAll(ctx, release.Config)
+	switch {
+	case err != nil && errors.Is(err, errNotFound):
+		return release, nil
+	case err != nil:
+		return Release{}, err
+	}
+	var v struct {
+		ResourcesURL string `plist:"resources-url"`
+	}
+	if err := plist.Unmarshal(buf, &v); err != nil {
+		return Release{}, fmt.Errorf("unable to read %s: %w", release.Config, err)
+	}
+	release.ResURL = v.ResourcesURL
+	return release, nil
+}
+
+// getMajors returns the major OS versions that Apple currently supports,
+// newest first. It reads them from the device management feed, which is the
+// list that Apple publishes for management tools.
+func (args *Args) getMajors(ctx context.Context) ([]int, error) {
+	if args.majors != nil {
+		return args.majors, nil
+	}
+	buf, err := args.getAll(ctx, assetVersionsURL)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read %s: %w", assetVersionsURL, err)
+	}
+	var v struct {
+		PublicAssetSets struct {
+			MacOS []struct {
+				ProductVersion string `json:"ProductVersion"`
+			} `json:"macOS"`
+		} `json:"PublicAssetSets"`
+	}
+	if err := json.Unmarshal(buf, &v); err != nil {
+		return nil, fmt.Errorf("unable to read %s: %w", assetVersionsURL, err)
+	}
+	seen := make(map[int]bool)
+	var majors []int
+	for _, set := range v.PublicAssetSets.MacOS {
+		switch major, err := majorVersion(set.ProductVersion); {
+		case err != nil:
+			continue
+		case !seen[major]:
+			seen[major], majors = true, append(majors, major)
+		}
+	}
+	if len(majors) == 0 {
+		return nil, fmt.Errorf("%s lists no macOS versions", assetVersionsURL)
+	}
+	slices.Sort(majors)
+	slices.Reverse(majors)
+	args.logger("macOS versions: %v", majors)
+	args.majors = majors
+	return majors, nil
 }
 
 // majorVersion returns the major version number from a version string such as
@@ -1220,6 +1300,10 @@ var (
 	ffprobeOnce sync.Once
 )
 
+// errNotFound reports that a URL holds nothing. Apple keeps an old
+// configuration in place, so this means that it never published one.
+var errNotFound = errors.New("not found")
+
 // errCorrupt reports that an artifact cannot be read, which means the cached
 // response is truncated or corrupt. The caller deletes the cache entry and
 // tries once more.
@@ -1235,6 +1319,10 @@ const (
 	// release asset redirects to a signed URL that expires within the hour,
 	// so nothing can cache it.
 	appleCABundleURL = "https://raw.githubusercontent.com/tls-inspector/rootca/main/bundles/apple_ca_bundle.pem"
+	// assetVersionsURL is the device management feed that lists the OS
+	// versions Apple currently supports. Its certificate chain ends at an
+	// Apple root, so it needs the bundle that appleCABundleURL holds.
+	assetVersionsURL = "https://gdmf.apple.com/v2/pmv"
 	// entriesName is the name of the asset manifest within the resources tar.
 	entriesName = "entries.json"
 	// loctableName is the name of the localization table in the resources tar.
