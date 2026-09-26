@@ -73,6 +73,10 @@ func main() {
 			ox.Exec(args.doGrab),
 			ox.Usage("grab", "download the wallpapers"),
 		),
+		ox.Sub(
+			ox.Exec(args.doVersions),
+			ox.Usage("versions", "list the OS versions that have wallpapers"),
+		),
 	)
 }
 
@@ -104,6 +108,7 @@ func (args *Args) setup(ctx context.Context) error {
 			fmt.Fprintf(os.Stderr, s+"\n", v...)
 		}
 	}
+	args.Version = normalizeVersion(args.Version)
 	if args.Clear {
 		if err := args.clearCache(ctx); err != nil {
 			return fmt.Errorf("unable to clear cache: %w", err)
@@ -124,6 +129,27 @@ func (args *Args) setup(ctx context.Context) error {
 		return fmt.Errorf("unable to get res url: %w", err)
 	}
 	args.logger("resources: %s (%s)", args.resURL, time.Since(now))
+	return nil
+}
+
+// doVersions writes the OS versions that have wallpapers to stdout. It reads
+// the built in list, and does not use the network.
+func (args *Args) doVersions(ctx context.Context) error {
+	def, err := majorVersion(args.Version)
+	if err != nil {
+		return err
+	}
+	n := 0
+	for _, release := range releases {
+		n = max(n, len(release.String()))
+	}
+	for _, release := range releases {
+		var extra string
+		if release.Major == def {
+			extra = "  (default)"
+		}
+		fmt.Printf("%- *s  %s%s\n", n, release.String(), strings.Join(operatingSystems, ", "), extra)
+	}
 	return nil
 }
 
@@ -963,6 +989,30 @@ var releases = []Release{
 	{OS: "macos", Major: 27, Config: resourcesConfigURL + "resources-config-27-0.plist"},
 }
 
+// String satisfies the fmt.Stringer interface.
+func (release Release) String() string {
+	return fmt.Sprintf("v%d.0", release.Major)
+}
+
+// operatingSystems are the operating system names that wallgrab accepts. tvOS
+// reads the macOS configuration. See the note on releases.
+var operatingSystems = []string{"macos", "tvos"}
+
+// normalizeVersion adds the leading "v" to a version that starts with a
+// number, so that "27" and "27.0" read as "v27" and "v27.0".
+func normalizeVersion(version string) string {
+	switch v := strings.TrimSpace(version); {
+	case v == "":
+		return v
+	case v[0] >= '0' && v[0] <= '9':
+		return "v" + v
+	case v[0] == 'V':
+		return "v" + v[1:]
+	default:
+		return v
+	}
+}
+
 // matchRelease returns the release for the operating system and version.
 func matchRelease(osName, version string) (Release, error) {
 	osName = strings.ToLower(strings.TrimSpace(osName))
@@ -982,12 +1032,12 @@ func matchRelease(osName, version string) (Release, error) {
 		if release.Major == major {
 			return release, nil
 		}
-		known = append(known, strconv.Itoa(release.Major))
+		known = append(known, release.String())
 	}
 	if len(known) == 0 {
-		return Release{}, fmt.Errorf("unknown operating system %q (available: macos tvos)", osName)
+		return Release{}, fmt.Errorf("unknown operating system %q (available: %s)", osName, strings.Join(operatingSystems, " "))
 	}
-	return Release{}, fmt.Errorf("Apple publishes no aerial wallpapers for %s %d (available: %s)", osName, major, strings.Join(known, " "))
+	return Release{}, fmt.Errorf("Apple publishes no aerial wallpapers for %s v%d (available: %s)", osName, major, strings.Join(known, " "))
 }
 
 // majorVersion returns the major version number from a version string such as

@@ -52,6 +52,9 @@ $ wallgrab list --sizes
 # list the names in another language
 $ wallgrab list --lang ja
 
+# list the OS versions that have wallpapers
+$ wallgrab versions
+
 # list the wallpapers of an older macOS release
 $ wallgrab list --version v15.0
 
@@ -75,8 +78,9 @@ commands that control it.
 
 ### Releases
 
-Apple publishes a separate set of wallpapers for each major OS release, and
-keeps the older sets in place. `--version` chooses the set:
+Run `wallgrab versions` to list the sets that wallgrab can download. Apple
+publishes a separate set for each major OS release, and keeps the older sets
+in place. `--version` chooses the set, and accepts a bare number:
 
 | Release | Wallpapers | Languages |
 | --- | --- | --- |
@@ -84,6 +88,9 @@ keeps the older sets in place. `--version` chooses the set:
 | `v15.0` | 137 | 40 |
 | `v26.0` | 156 | 43 |
 | `v27.0` (default) | 164 | 44 |
+
+`--version 27`, `--version 27.0`, and `--version v27.0` all mean the same
+release.
 
 Apple changed the layout of these files at v26. Up to v15 the names are one
 plist per language, and from v26 they are one table that holds every language.
