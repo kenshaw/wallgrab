@@ -22,7 +22,6 @@ import (
 	"os/user"
 	"path"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"sort"
@@ -45,6 +44,7 @@ import (
 
 func main() {
 	args := &Args{
+		OS:           "macos",
 		MacOSVersion: "v27.0",
 		Lang:         "en",
 		Dest:         "~/Pictures/backgrounds/aerials",
@@ -78,7 +78,8 @@ func main() {
 
 type Args struct {
 	Verbose      bool   `ox:"write progress and requests to stderr,short:v"`
-	MacOSVersion string `ox:"macOS version to get wallpapers for,name:macos-version"`
+	OS           string `ox:"operating system to get wallpapers for,name:os"`
+	MacOSVersion string `ox:"major version to get wallpapers for,name:macos-version"`
 	Streams      int    `ox:"number of downloads to run at the same time"`
 	Sizes        bool   `ox:"show the size of each wallpaper"`
 	Dest         string `ox:"directory to write the wallpapers to"`
@@ -87,10 +88,11 @@ type Args struct {
 	Lang         string `ox:"language for the wallpaper names"`
 	Clear        bool   `ox:"delete the cache directory before running"`
 
-	resURL   string
-	pool     *x509.CertPool
-	loctable map[string]map[string]any
-	logger   func(string, ...any)
+	resURL    string
+	pool      *x509.CertPool
+	resources *Resources
+	loctable  map[string]map[string]any
+	logger    func(string, ...any)
 }
 
 // setup prepares args for a command. It builds the user agent and the cert
@@ -384,23 +386,139 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 	return nil
 }
 
-// getLoctable returns the localization table. The table maps a language to
-// its localization keys, and each key to its localized string.
+// Resources holds the files read from a resources tar. Apple changed the tar
+// layout with macOS v26, so exactly one of loctable and strings is set.
+type Resources struct {
+	// entries is the raw entries.json asset manifest.
+	entries []byte
+	// loctable is the combined localization table, used by macOS v26 and
+	// later. It holds every language in one binary plist.
+	loctable []byte
+	// strings holds one plist per language, used by macOS v15 and earlier. It
+	// is keyed by language.
+	strings map[string][]byte
+}
+
+// getResources reads the resources tar and returns the manifest and the
+// localized names. It reads the tar once, because the tar holds both and is
+// over two megabytes.
+func (args *Args) getResources(ctx context.Context) (*Resources, error) {
+	if args.resources != nil {
+		return args.resources, nil
+	}
+	res, err := args.readResources(ctx)
+	if errors.Is(err, errCorrupt) {
+		args.logger("%v (evicting and retrying)", err)
+		if err := args.evict(ctx, args.resURL); err != nil {
+			return nil, fmt.Errorf("unable to evict %s: %w", args.resURL, err)
+		}
+		if res, err = args.readResources(ctx); err != nil {
+			return nil, fmt.Errorf("%w (run with --clear to delete the cache)", err)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	args.resources = res
+	return res, nil
+}
+
+// readResources reads the manifest and the localized names from the resources
+// tar.
+func (args *Args) readResources(ctx context.Context) (*Resources, error) {
+	body, err := args.get(ctx, args.resURL)
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+	args.logger("reading tar: %s", args.resURL)
+	res := &Resources{strings: make(map[string][]byte)}
+	for r := tar.NewReader(body); ; {
+		h, err := r.Next()
+		switch {
+		case errors.Is(err, io.EOF):
+			if res.entries == nil {
+				return nil, fmt.Errorf("%w: %s does not contain %s", errCorrupt, args.resURL, entriesName)
+			}
+			if res.loctable == nil && len(res.strings) == 0 {
+				return nil, fmt.Errorf("%w: %s holds no localized names", errCorrupt, args.resURL)
+			}
+			return res, nil
+		case err != nil:
+			return nil, fmt.Errorf("%w: unable to read %s: %w", errCorrupt, args.resURL, err)
+		}
+		name := strings.TrimPrefix(h.Name, "./")
+		// macOS copies a bundle with its resource forks, which land in the tar
+		// as AppleDouble files. They are not part of the bundle.
+		if kind, lang := classify(name); kind != "" && !strings.HasPrefix(path.Base(name), "._") {
+			buf, err := io.ReadAll(r)
+			if err != nil {
+				return nil, fmt.Errorf("%w: unable to read %s from %s: %w", errCorrupt, name, args.resURL, err)
+			}
+			args.logger("read %s from tar (%d bytes)", name, len(buf))
+			switch kind {
+			case "entries":
+				res.entries = buf
+			case "loctable":
+				res.loctable = buf
+			case "strings":
+				res.strings[lang] = buf
+			}
+		}
+	}
+}
+
+// classify reports which resource a tar member holds, and for a per language
+// plist, which language it holds. It returns an empty kind for every other
+// member.
+func classify(name string) (string, string) {
+	switch {
+	case name == entriesName:
+		return "entries", ""
+	case name == loctableName:
+		return "loctable", ""
+	case strings.HasPrefix(name, stringsPrefix) && strings.HasSuffix(name, stringsSuffix):
+		lang := strings.TrimSuffix(strings.TrimPrefix(name, stringsPrefix), stringsSuffix)
+		if lang == "" || strings.Contains(lang, "/") {
+			return "", ""
+		}
+		return "strings", lang
+	}
+	return "", ""
+}
+
+// getLoctable returns the localization table. The table maps a language to its
+// localization keys, and each key to its localized string.
 func (args *Args) getLoctable(ctx context.Context) (map[string]map[string]any, error) {
 	if args.loctable != nil {
 		return args.loctable, nil
 	}
-	buf, err := args.getTarFile(ctx, loctableName)
+	res, err := args.getResources(ctx)
 	if err != nil {
 		return nil, err
 	}
-	// the table is a binary plist. It holds a LocProvenance entry next to the
-	// languages, and the values of that entry are not strings.
 	loctable := make(map[string]map[string]any)
-	if err := plist.Unmarshal(buf, &loctable); err != nil {
-		return nil, err
+	if res.loctable != nil {
+		// macOS v26 and later: one binary plist holds every language. It also
+		// holds a LocProvenance entry, and the values of that entry are not
+		// strings.
+		if err := plist.Unmarshal(res.loctable, &loctable); err != nil {
+			return nil, fmt.Errorf("unable to read the localization table: %w", err)
+		}
+		delete(loctable, "LocProvenance")
+	} else {
+		// macOS v15 and earlier: one plist per language.
+		for lang, buf := range res.strings {
+			m := make(map[string]string)
+			if err := plist.Unmarshal(buf, &m); err != nil {
+				return nil, fmt.Errorf("unable to read the names for %s: %w", lang, err)
+			}
+			loctable[lang] = make(map[string]any, len(m))
+			for k, v := range m {
+				loctable[lang][k] = v
+			}
+		}
 	}
-	delete(loctable, "LocProvenance")
 	args.loctable = loctable
 	return loctable, nil
 }
@@ -464,12 +582,38 @@ func localized(names map[string]string, key string) string {
 	return key
 }
 
+// categoryPrefixes are the prefixes that Apple puts on a category or
+// subcategory localization key, longest first.
+var categoryPrefixes = []string{
+	"AerialSubcategoryDescription",
+	"AerialCategoryDescription",
+	"AerialSubcategory",
+	"AerialCategory",
+}
+
+// categoryName returns the localized name for a category or subcategory key.
+// Apple ships some keys with no string for them, as macOS v26 does for
+// AerialSubcategoryDescriptionMac. Read the name out of the key in that case,
+// rather than show the reader the key itself.
+func categoryName(names map[string]string, key string) string {
+	if s := names[key]; s != "" {
+		return s
+	}
+	for _, prefix := range categoryPrefixes {
+		if s, ok := strings.CutPrefix(key, prefix); ok && s != "" {
+			return s
+		}
+	}
+	return key
+}
+
 // getEntries returns the asset manifest, with the localized names applied.
 func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
-	buf, err := args.getTarFile(ctx, entriesName)
+	res, err := args.getResources(ctx)
 	if err != nil {
 		return nil, err
 	}
+	buf := res.entries
 	entries := new(Entries)
 	dec := json.NewDecoder(bytes.NewReader(buf))
 	dec.DisallowUnknownFields()
@@ -490,14 +634,14 @@ func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 		// add category names
 		asset.CategoryNames = make([]string, len(asset.Categories))
 		for i, id := range asset.Categories {
-			s := localized(names, entries.GetCategory(id))
+			s := categoryName(names, entries.GetCategory(id))
 			asset.CategoryNames[i] = s
 			args.logger("cat %s %d: %s -> %q", asset.LocalizedNameKey, i, id, s)
 		}
 		// add subcategory names
 		asset.SubcategoryNames = make([]string, len(asset.Subcategories))
 		for i, id := range asset.Subcategories {
-			s := localized(names, entries.GetSubcategory(asset.Categories, id))
+			s := categoryName(names, entries.GetSubcategory(asset.Categories, id))
 			asset.SubcategoryNames[i] = s
 			args.logger("subcat %s %d: %s -> %q", asset.LocalizedNameKey, i, id, s)
 		}
@@ -538,55 +682,6 @@ func (args *Args) listLangs(ctx context.Context) error {
 	}
 	args.logger("langs: %s", strings.Join(slices.Sorted(maps.Keys(loctable)), " "))
 	return nil
-}
-
-// getTarFile returns the named file from the resources tar. If the cached tar
-// cannot be read, getTarFile deletes it from the cache and tries once more. A
-// truncated or corrupt cached response otherwise stays until the cache entry
-// expires.
-func (args *Args) getTarFile(ctx context.Context, name string) ([]byte, error) {
-	switch buf, err := args.readTarFile(ctx, name); {
-	case err == nil:
-		return buf, nil
-	case !errors.Is(err, errCorrupt):
-		return nil, err
-	default:
-		args.logger("%v (evicting and retrying)", err)
-	}
-	if err := args.evict(ctx, args.resURL); err != nil {
-		return nil, fmt.Errorf("unable to evict %s: %w", args.resURL, err)
-	}
-	buf, err := args.readTarFile(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("%w (run with --clear to delete the cache)", err)
-	}
-	return buf, nil
-}
-
-// readTarFile reads the named file from the resources tar.
-func (args *Args) readTarFile(ctx context.Context, name string) ([]byte, error) {
-	body, err := args.get(ctx, args.resURL)
-	if err != nil {
-		return nil, err
-	}
-	defer body.Close()
-	args.logger("reading %s from tar", name)
-	for n, r := strings.TrimPrefix(name, "./"), tar.NewReader(body); ; {
-		h, err := r.Next()
-		switch {
-		case errors.Is(err, io.EOF):
-			return nil, fmt.Errorf("%w: %s does not contain %s", errCorrupt, args.resURL, name)
-		case err != nil:
-			return nil, fmt.Errorf("%w: unable to read %s: %w", errCorrupt, args.resURL, err)
-		case strings.TrimPrefix(h.Name, "./") != n:
-			continue
-		}
-		buf, err := io.ReadAll(r)
-		if err != nil {
-			return nil, fmt.Errorf("%w: unable to read %s from %s: %w", errCorrupt, name, args.resURL, err)
-		}
-		return buf, nil
-	}
 }
 
 // getSize returns the size of an asset. It sends a HEAD request to the URL.
@@ -795,6 +890,10 @@ func (args *Args) get(ctx context.Context, urlstr string) (io.ReadCloser, error)
 	if err != nil {
 		return nil, err
 	}
+	if res.StatusCode != http.StatusOK {
+		_ = res.Body.Close()
+		return nil, fmt.Errorf("%s: %s", urlstr, res.Status)
+	}
 	return res.Body, nil
 }
 
@@ -807,13 +906,17 @@ func (args *Args) getAll(ctx context.Context, urlstr string) ([]byte, error) {
 	return io.ReadAll(body)
 }
 
-// getResURL finds the URL of the resources tar for the macOS version.
+// getResURL finds the URL of the resources tar for the release.
 func (args *Args) getResURL(ctx context.Context) error {
 	if args.resURL != "" {
 		return nil
 	}
-	version := nonNumRE.ReplaceAllString(strings.TrimPrefix(strings.ToLower(args.MacOSVersion), "v"), "-")
-	buf, err := args.getAll(ctx, fmt.Sprintf(resourcesConfigPlistURL, version))
+	release, err := matchRelease(args.OS, args.MacOSVersion)
+	if err != nil {
+		return err
+	}
+	args.logger("release: %s %d (%s)", release.OS, release.Major, release.Config)
+	buf, err := args.getAll(ctx, release.Config)
 	if err != nil {
 		return err
 	}
@@ -821,13 +924,85 @@ func (args *Args) getResURL(ctx context.Context) error {
 		ResourcesURL string `plist:"resources-url"`
 	}
 	if err := plist.Unmarshal(buf, &v); err != nil {
-		return err
+		return fmt.Errorf("unable to read %s: %w", release.Config, err)
+	}
+	if v.ResourcesURL == "" {
+		return fmt.Errorf("%s holds no resources-url", release.Config)
 	}
 	args.resURL = v.ResourcesURL
 	return nil
 }
 
-var nonNumRE = regexp.MustCompile(`[^0-9]`)
+// Release describes one operating system release that Apple publishes aerial
+// wallpapers for.
+type Release struct {
+	// OS is the operating system name.
+	OS string
+	// Major is the major version of the release.
+	Major int
+	// Config is the URL of the configuration plist, which names the resources
+	// tar for the release.
+	Config string
+}
+
+// releases lists the releases that Apple publishes a configuration for. Apple
+// keeps an old configuration in place after a new one appears, so a release
+// stays in this list once it is added.
+//
+// tvOS shares the configuration of macOS. The two operating systems read the
+// same aerial wallpapers from the same tar, and the bundle of localized names
+// inside that tar is still called TVIdleScreenStrings. Apple publishes no
+// separate tvOS path.
+var releases = []Release{
+	// macOS v14 has no configuration of its own. The unversioned
+	// configuration names the v14 tar, and is what a client that sends no
+	// version receives.
+	{OS: "macos", Major: 14, Config: resourcesConfigURL + "resources-config.plist"},
+	{OS: "macos", Major: 15, Config: resourcesConfigURL + "resources-config-15-0.plist"},
+	{OS: "macos", Major: 26, Config: resourcesConfigURL + "resources-config-26-0.plist"},
+	{OS: "macos", Major: 27, Config: resourcesConfigURL + "resources-config-27-0.plist"},
+}
+
+// matchRelease returns the release for the operating system and version.
+func matchRelease(osName, version string) (Release, error) {
+	osName = strings.ToLower(strings.TrimSpace(osName))
+	// tvOS reads the macOS configuration. See the note on releases.
+	if osName == "tvos" {
+		osName = "macos"
+	}
+	major, err := majorVersion(version)
+	if err != nil {
+		return Release{}, err
+	}
+	var known []string
+	for _, release := range releases {
+		if release.OS != osName {
+			continue
+		}
+		if release.Major == major {
+			return release, nil
+		}
+		known = append(known, strconv.Itoa(release.Major))
+	}
+	if len(known) == 0 {
+		return Release{}, fmt.Errorf("unknown operating system %q (available: macos tvos)", osName)
+	}
+	return Release{}, fmt.Errorf("Apple publishes no aerial wallpapers for %s %d (available: %s)", osName, major, strings.Join(known, " "))
+}
+
+// majorVersion returns the major version number from a version string such as
+// "v27.0", "27.0", or "27".
+func majorVersion(version string) (int, error) {
+	v := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(version)), "v")
+	if i := strings.IndexRune(v, '.'); i != -1 {
+		v = v[:i]
+	}
+	major, err := strconv.Atoi(v)
+	if err != nil || major <= 0 {
+		return 0, fmt.Errorf("invalid version %q", version)
+	}
+	return major, nil
+}
 
 // Entries is the top level container for entries.json.
 type Entries struct {
@@ -1001,8 +1176,9 @@ var (
 var errCorrupt = errors.New("corrupt")
 
 const (
-	// resourcesConfigPlistURL is the resources config plist URL.
-	resourcesConfigPlistURL = "https://configuration.apple.com/configurations/internetservices/aerials/resources-config-%s.plist"
+	// resourcesConfigURL is the URL that Apple publishes the aerial
+	// configurations under.
+	resourcesConfigURL = "https://configuration.apple.com/configurations/internetservices/aerials/"
 	// appleCABundleURL is the URL of Apple's root CA bundle, published by
 	// github.com/tls-inspector/rootca. This is the copy committed to the
 	// repository, not the release asset. Both hold the same bytes, but the
@@ -1015,4 +1191,8 @@ const (
 	// Before macOS v27, each language had its own Localizable.nocache.strings
 	// plist next to the Contents directory of the bundle.
 	loctableName = "TVIdleScreenStrings.bundle/Contents/Resources/Localizable.nocache.loctable"
+	// stringsPrefix and stringsSuffix wrap the language in the name of a per
+	// language plist, as used by macOS v15 and earlier.
+	stringsPrefix = "TVIdleScreenStrings.bundle/"
+	stringsSuffix = ".lproj/Localizable.nocache.strings"
 )

@@ -3,6 +3,7 @@
 <div align="center">
   <a href="#installing" title="Installing">Installing</a> |
   <a href="#using" title="Using">Using</a> |
+  <a href="#releases" title="Releases">Releases</a> |
   <a href="#the-cache" title="The cache">The cache</a> |
   <a href="#sway" title="Sway">Sway</a> |
   <a href="#notes" title="Notes">Notes</a> |
@@ -51,6 +52,9 @@ $ wallgrab list --sizes
 # list the names in another language
 $ wallgrab list --lang ja
 
+# list the wallpapers of an older macOS release
+$ wallgrab list --macos-version v15.0
+
 # draw a thumbnail of each wallpaper in the terminal
 $ wallgrab show
 
@@ -68,6 +72,26 @@ Run `wallgrab list --lang xx` to see every language that Apple provides names
 for. The command fails and lists them. See [Sway](#sway) for a desktop
 configuration that plays the wallpapers, and [Notes](#notes) for the `mpv`
 commands that control it.
+
+### Releases
+
+Apple publishes a separate set of wallpapers for each major OS release, and
+keeps the older sets in place. `--macos-version` chooses the set:
+
+| Release | Wallpapers | Languages |
+| --- | --- | --- |
+| `v14.0` | 134 | 39 |
+| `v15.0` | 137 | 40 |
+| `v26.0` | 156 | 43 |
+| `v27.0` (default) | 164 | 44 |
+
+Apple changed the layout of these files at v26. Up to v15 the names are one
+plist per language, and from v26 they are one table that holds every language.
+wallgrab reads both, so every release above works the same way.
+
+`--os` accepts `macos` and `tvos`. Apple publishes one set of wallpapers for
+both, so the two give the same result today. The option exists so that a tvOS
+set can be added if Apple ever separates them.
 
 ### The cache
 
