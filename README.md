@@ -3,10 +3,11 @@
 <div align="center">
   <a href="#installing" title="Installing">Installing</a> |
   <a href="#using" title="Using">Using</a> |
-  <a href="#releases" title="Releases">Releases</a> |
+  <a href="#os-versions" title="OS versions">OS versions</a> |
   <a href="#the-cache" title="The cache">The cache</a> |
   <a href="#sway" title="Sway">Sway</a> |
   <a href="#notes" title="Notes">Notes</a> |
+  <a href="https://github.com/kenshaw/wallgrab/releases" title="Releases">Releases</a> |
   <a href="https://github.com/kenshaw/wallgrab/issues" title="Issues">Issues</a>
 </div>
 
@@ -23,12 +24,15 @@ graphics.
 
 [![Unit Tests][wallgrab-ci-status]][wallgrab-ci]
 [![Go Reference][goref-wallgrab-status]][goref-wallgrab]
+[![Releases][release-status]][Releases]
 [![Discord Discussion][discord-status]][discord]
 
 [wallgrab-ci]: https://github.com/kenshaw/wallgrab/actions/workflows/test.yml "Test CI"
 [wallgrab-ci-status]: https://github.com/kenshaw/wallgrab/actions/workflows/test.yml/badge.svg "Test CI"
 [goref-wallgrab]: https://pkg.go.dev/github.com/kenshaw/wallgrab "Go Reference"
 [goref-wallgrab-status]: https://pkg.go.dev/badge/github.com/kenshaw/wallgrab.svg "Go Reference"
+[release-status]: https://img.shields.io/github/v/release/kenshaw/wallgrab?display_name=tag&sort=semver "Latest Release"
+[releases]: https://github.com/kenshaw/wallgrab/releases "Releases"
 [discord]: https://discord.gg/WDWAgXwJqN "Discord Discussion"
 [discord-status]: https://img.shields.io/discord/829150509658013727.svg?label=Discord&logo=Discord&colorB=7289da&style=flat-square "Discord Discussion"
 
@@ -37,7 +41,7 @@ graphics.
 Install in the usual Go fashion:
 
 ```sh
-$ go install github.com/kenshaw/wallgrab@master
+$ go install github.com/kenshaw/wallgrab@latest
 ```
 
 ## Using
@@ -76,7 +80,7 @@ for. The command fails and lists them. See [Sway](#sway) for a desktop
 configuration that plays the wallpapers, and [Notes](#notes) for the `mpv`
 commands that control it.
 
-### Releases
+### OS versions
 
 Apple publishes a separate set of wallpapers for each major OS release, and
 keeps the older sets in place. wallgrab downloads the newest set by default.
