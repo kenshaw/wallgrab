@@ -93,6 +93,7 @@ type Args struct {
 
 	resURL    string
 	majors    []int
+	codenames map[int]string
 	pool      *x509.CertPool
 	resources *Resources
 	loctable  map[string]map[string]any
@@ -984,17 +985,41 @@ func (release Release) String() string {
 	return fmt.Sprintf("v%d.0", release.Major)
 }
 
-// codenames are the names Apple gives each major macOS release. A release that
-// Apple has not named yet is absent from this list, and is chosen by its
-// number alone.
-var codenames = map[int]string{
-	11: "Big Sur",
-	12: "Monterey",
-	13: "Ventura",
-	14: "Sonoma",
-	15: "Sequoia",
-	26: "Tahoe",
-	27: "Golden Gate",
+// getCodenames returns the name Apple gives each major macOS release, keyed
+// by the major version.
+//
+// Apple publishes no feed that names a release, so this reads endoflife.date,
+// which tracks them. A release is chosen by its number alone when the feed
+// does not answer, so a failure here is reported and does not stop the
+// command.
+func (args *Args) getCodenames(ctx context.Context) map[int]string {
+	if args.codenames != nil {
+		return args.codenames
+	}
+	args.codenames = make(map[int]string)
+	buf, err := args.getAll(ctx, codenamesURL)
+	if err != nil {
+		args.logger("unable to read %s: %v (continuing without codenames)", codenamesURL, err)
+		return args.codenames
+	}
+	var releases []struct {
+		Cycle    string `json:"cycle"`
+		Codename string `json:"codename"`
+	}
+	if err := json.Unmarshal(buf, &releases); err != nil {
+		args.logger("unable to read %s: %v (continuing without codenames)", codenamesURL, err)
+		return args.codenames
+	}
+	for _, release := range releases {
+		// every macOS 10 release shares one major version, so a cycle that is
+		// not a whole number names no major version of its own
+		switch major, err := strconv.Atoi(release.Cycle); {
+		case err == nil && major > 0 && release.Codename != "":
+			args.codenames[major] = release.Codename
+		}
+	}
+	args.logger("codenames: %d", len(args.codenames))
+	return args.codenames
 }
 
 // foldName removes the spacing and the case from a codename, so that
@@ -1009,7 +1034,7 @@ func foldName(name string) string {
 }
 
 // matchCodename returns the major version that Apple gives the name to.
-func matchCodename(name string) (int, bool) {
+func matchCodename(codenames map[int]string, name string) (int, bool) {
 	if folded := foldName(name); folded != "" {
 		for major, codename := range codenames {
 			if foldName(codename) == folded {
@@ -1065,7 +1090,7 @@ func (args *Args) resolve(ctx context.Context, osName, version string) (Release,
 	if strings.TrimSpace(version) == "" {
 		return args.latest(ctx, name)
 	}
-	major, err := majorVersion(version)
+	major, err := args.majorVersion(ctx, version)
 	if err != nil {
 		return Release{}, err
 	}
@@ -1102,7 +1127,7 @@ func (args *Args) latest(ctx context.Context, name string) (Release, error) {
 // release returns the release for the major version. The ResURL of the
 // returned release is empty when Apple publishes no wallpapers for it.
 func (args *Args) release(ctx context.Context, name string, major int) (Release, error) {
-	release := Release{OS: name, Major: major, Codename: codenames[major], Config: configURL(major)}
+	release := Release{OS: name, Major: major, Codename: args.getCodenames(ctx)[major], Config: configURL(major)}
 	if release.Config == "" {
 		return release, nil
 	}
@@ -1147,7 +1172,7 @@ func (args *Args) getMajors(ctx context.Context) ([]int, error) {
 	seen := make(map[int]bool)
 	var majors []int
 	for _, set := range v.PublicAssetSets.MacOS {
-		switch major, err := majorVersion(set.ProductVersion); {
+		switch major, err := parseMajor(set.ProductVersion); {
 		case err != nil:
 			continue
 		case !seen[major]:
@@ -1164,12 +1189,18 @@ func (args *Args) getMajors(ctx context.Context) ([]int, error) {
 	return majors, nil
 }
 
-// majorVersion returns the major version number from a version string such as
-// "v27.0", "27.0", "27", or a codename such as "Tahoe".
-func majorVersion(version string) (int, error) {
-	if major, ok := matchCodename(version); ok {
+// majorVersion returns the major version number for a version string such as
+// "v27.0", "27.0" or "27", or for a codename such as "Tahoe".
+func (args *Args) majorVersion(ctx context.Context, version string) (int, error) {
+	if major, ok := matchCodename(args.getCodenames(ctx), version); ok {
 		return major, nil
 	}
+	return parseMajor(version)
+}
+
+// parseMajor returns the major version number from a version string such as
+// "v27.0", "27.0", or "27".
+func parseMajor(version string) (int, error) {
 	v := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(version)), "v")
 	if i := strings.IndexRune(v, '.'); i != -1 {
 		v = v[:i]
@@ -1293,7 +1324,7 @@ func newDiskCache(name string, transport http.RoundTripper) (*diskcache.Cache, e
 		diskcache.WithTransport(transport),
 		// diskcache matches a content type against the response header
 		// exactly. A type that is not listed here keeps the 30 day TTL above.
-		diskcache.WithContentTypeTTL(7*24*time.Hour, "text/xml", "application/octet-stream", "video/quicktime", "text/plain; charset=utf-8"),
+		diskcache.WithContentTypeTTL(7*24*time.Hour, "text/xml", "application/octet-stream", "video/quicktime", "text/plain; charset=utf-8", "application/json", "application/json; charset=UTF-8"),
 	)
 	return cache, err
 }
@@ -1370,6 +1401,10 @@ const (
 	// versions Apple currently supports. Its certificate chain ends at an
 	// Apple root, so it needs the bundle that appleCABundleURL holds.
 	assetVersionsURL = "https://gdmf.apple.com/v2/pmv"
+	// codenamesURL names each major macOS release. Apple publishes no feed
+	// that carries the names, and the device management feed holds version
+	// numbers alone.
+	codenamesURL = "https://endoflife.date/api/macos.json"
 	// entriesName is the name of the asset manifest within the resources tar.
 	entriesName = "entries.json"
 	// loctableName is the name of the localization table in the resources tar.

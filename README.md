@@ -99,9 +99,10 @@ wallgrab reads the list of OS versions from Apple's device management feed at
 Apple lists a version before it publishes the wallpapers for it, so wallgrab
 walks back from the newest version until a set answers.
 
-That feed carries version numbers alone. The codenames are held in the source,
-because Apple publishes no feed for them. A release that is not in that list
-still works, and `wallgrab versions` shows it with no codename.
+That feed carries version numbers alone. Apple publishes no feed that names a
+release, so wallgrab reads the codenames from `https://endoflife.date/api/macos.json`.
+A release that the codename feed does not name still works by number, and
+`wallgrab versions` shows it with no codename.
 
 Apple changed the layout of these files at v26. Up to v15 the names are one
 plist per language, and from v26 they are one table that holds every language.
