@@ -81,22 +81,27 @@ commands that control it.
 Apple publishes a separate set of wallpapers for each major OS release, and
 keeps the older sets in place. wallgrab downloads the newest set by default.
 Run `wallgrab versions` to list them all. `--version` chooses an older set,
-and accepts a bare number:
+and takes a number or a codename:
 
-| Release | Wallpapers | Languages |
-| --- | --- | --- |
-| `v14.0` | 134 | 39 |
-| `v15.0` | 137 | 40 |
-| `v26.0` | 156 | 43 |
-| `v27.0` (newest) | 164 | 44 |
+| Release | Codename | Wallpapers | Languages |
+| --- | --- | --- | --- |
+| `v14.0` | Sonoma | 134 | 39 |
+| `v15.0` | Sequoia | 137 | 40 |
+| `v26.0` | Tahoe | 156 | 43 |
+| `v27.0` (newest) | Golden Gate | 164 | 44 |
 
-`--version 27`, `--version 27.0`, and `--version v27.0` all mean the same
-release.
+`--version 27`, `--version 27.0`, `--version v27.0`, and
+`--version "golden gate"` all mean the same release. A codename ignores case
+and spacing, so `goldengate` works too.
 
 wallgrab reads the list of OS versions from Apple's device management feed at
 `https://gdmf.apple.com/v2/pmv`, so a new macOS release needs no change here.
 Apple lists a version before it publishes the wallpapers for it, so wallgrab
 walks back from the newest version until a set answers.
+
+That feed carries version numbers alone. The codenames are held in the source,
+because Apple publishes no feed for them. A release that is not in that list
+still works, and `wallgrab versions` shows it with no codename.
 
 Apple changed the layout of these files at v26. Up to v15 the names are one
 plist per language, and from v26 they are one table that holds every language.

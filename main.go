@@ -144,20 +144,25 @@ func (args *Args) doVersions(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	newest := true
+	var found []Release
+	n := 0
 	for _, major := range majors {
 		release, err := args.release(ctx, name, major)
-		if err != nil {
+		switch {
+		case err != nil:
 			return err
-		}
-		if release.ResURL == "" {
+		case release.ResURL == "":
 			continue
 		}
+		n = max(n, len(release.Codename))
+		found = append(found, release)
+	}
+	for i, release := range found {
 		var extra string
-		if newest {
-			extra, newest = "  (newest)", false
+		if i == 0 {
+			extra = "  (newest)"
 		}
-		fmt.Printf("%-7s %s%s\n", release, strings.Join(operatingSystems, ", "), extra)
+		fmt.Printf("%-7s %- *s  %s%s\n", release, n, release.Codename, strings.Join(operatingSystems, ", "), extra)
 	}
 	return nil
 }
@@ -953,7 +958,7 @@ func (args *Args) getResURL(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	args.logger("release: %s %s (%s)", release.OS, release, release.Config)
+	args.logger("release: %s %s %s (%s)", release.OS, release, release.Codename, release.Config)
 	args.Version, args.resURL = release.String(), release.ResURL
 	return nil
 }
@@ -965,6 +970,9 @@ type Release struct {
 	OS string
 	// Major is the major version of the release.
 	Major int
+	// Codename is the name Apple gives the release, such as "Tahoe". It is
+	// empty for a release that Apple has not named yet.
+	Codename string
 	// Config is the URL of the configuration plist for the release.
 	Config string
 	// ResURL is the URL of the resources tar, read from the configuration.
@@ -974,6 +982,42 @@ type Release struct {
 // String satisfies the fmt.Stringer interface.
 func (release Release) String() string {
 	return fmt.Sprintf("v%d.0", release.Major)
+}
+
+// codenames are the names Apple gives each major macOS release. A release that
+// Apple has not named yet is absent from this list, and is chosen by its
+// number alone.
+var codenames = map[int]string{
+	11: "Big Sur",
+	12: "Monterey",
+	13: "Ventura",
+	14: "Sonoma",
+	15: "Sequoia",
+	26: "Tahoe",
+	27: "Golden Gate",
+}
+
+// foldName removes the spacing and the case from a codename, so that
+// "Golden Gate", "golden gate", and "goldengate" all read the same.
+func foldName(name string) string {
+	return strings.Map(func(r rune) rune {
+		if r == ' ' || r == '-' || r == '_' {
+			return -1
+		}
+		return unicode.ToLower(r)
+	}, name)
+}
+
+// matchCodename returns the major version that Apple gives the name to.
+func matchCodename(name string) (int, bool) {
+	if folded := foldName(name); folded != "" {
+		for major, codename := range codenames {
+			if foldName(codename) == folded {
+				return major, true
+			}
+		}
+	}
+	return 0, false
 }
 
 // operatingSystems are the operating system names that wallgrab accepts.
@@ -1058,7 +1102,7 @@ func (args *Args) latest(ctx context.Context, name string) (Release, error) {
 // release returns the release for the major version. The ResURL of the
 // returned release is empty when Apple publishes no wallpapers for it.
 func (args *Args) release(ctx context.Context, name string, major int) (Release, error) {
-	release := Release{OS: name, Major: major, Config: configURL(major)}
+	release := Release{OS: name, Major: major, Codename: codenames[major], Config: configURL(major)}
 	if release.Config == "" {
 		return release, nil
 	}
@@ -1121,15 +1165,18 @@ func (args *Args) getMajors(ctx context.Context) ([]int, error) {
 }
 
 // majorVersion returns the major version number from a version string such as
-// "v27.0", "27.0", or "27".
+// "v27.0", "27.0", "27", or a codename such as "Tahoe".
 func majorVersion(version string) (int, error) {
+	if major, ok := matchCodename(version); ok {
+		return major, nil
+	}
 	v := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(version)), "v")
 	if i := strings.IndexRune(v, '.'); i != -1 {
 		v = v[:i]
 	}
 	major, err := strconv.Atoi(v)
 	if err != nil || major <= 0 {
-		return 0, fmt.Errorf("invalid version %q", version)
+		return 0, fmt.Errorf("invalid version %q (use a number such as 27, or a name such as Tahoe)", version)
 	}
 	return major, nil
 }
