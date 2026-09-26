@@ -44,11 +44,11 @@ import (
 
 func main() {
 	args := &Args{
-		OS:           "macos",
-		MacOSVersion: "v27.0",
-		Lang:         "en",
-		Dest:         "~/Pictures/backgrounds/aerials",
-		logger:       func(string, ...any) {},
+		OS:      "macos",
+		Version: "v27.0",
+		Lang:    "en",
+		Dest:    "~/Pictures/backgrounds/aerials",
+		logger:  func(string, ...any) {},
 	}
 	switch n := runtime.NumCPU(); {
 	case n > 6:
@@ -77,16 +77,16 @@ func main() {
 }
 
 type Args struct {
-	Verbose      bool   `ox:"write progress and requests to stderr,short:v"`
-	OS           string `ox:"operating system to get wallpapers for,name:os"`
-	MacOSVersion string `ox:"major version to get wallpapers for,name:macos-version"`
-	Streams      int    `ox:"number of downloads to run at the same time"`
-	Sizes        bool   `ox:"show the size of each wallpaper"`
-	Dest         string `ox:"directory to write the wallpapers to"`
-	M3u          string `ox:"name of the playlist file to write"`
-	UserAgent    string `ox:"user agent to send with each request"`
-	Lang         string `ox:"language for the wallpaper names"`
-	Clear        bool   `ox:"delete the cache directory before running"`
+	Verbose   bool   `ox:"write progress and requests to stderr,short:v"`
+	OS        string `ox:"operating system to get wallpapers for,name:os"`
+	Version   string `ox:"major OS version to get wallpapers for"`
+	Streams   int    `ox:"number of downloads to run at the same time"`
+	Sizes     bool   `ox:"show the size of each wallpaper"`
+	Dest      string `ox:"directory to write the wallpapers to"`
+	M3u       string `ox:"name of the playlist file to write"`
+	UserAgent string `ox:"user agent to send with each request"`
+	Lang      string `ox:"language for the wallpaper names"`
+	Clear     bool   `ox:"delete the cache directory before running"`
 
 	resURL    string
 	pool      *x509.CertPool
@@ -911,7 +911,7 @@ func (args *Args) getResURL(ctx context.Context) error {
 	if args.resURL != "" {
 		return nil
 	}
-	release, err := matchRelease(args.OS, args.MacOSVersion)
+	release, err := matchRelease(args.OS, args.Version)
 	if err != nil {
 		return err
 	}

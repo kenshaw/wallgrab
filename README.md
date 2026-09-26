@@ -53,7 +53,7 @@ $ wallgrab list --sizes
 $ wallgrab list --lang ja
 
 # list the wallpapers of an older macOS release
-$ wallgrab list --macos-version v15.0
+$ wallgrab list --version v15.0
 
 # draw a thumbnail of each wallpaper in the terminal
 $ wallgrab show
@@ -76,7 +76,7 @@ commands that control it.
 ### Releases
 
 Apple publishes a separate set of wallpapers for each major OS release, and
-keeps the older sets in place. `--macos-version` chooses the set:
+keeps the older sets in place. `--version` chooses the set:
 
 | Release | Wallpapers | Languages |
 | --- | --- | --- |
