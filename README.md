@@ -1,24 +1,85 @@
 # wallgrab
 
-A quick util to grab Apple Aerial wallpapers.
+<div align="center">
+  <a href="#installing" title="Installing">Installing</a> |
+  <a href="#using" title="Using">Using</a> |
+  <a href="#the-cache" title="The cache">The cache</a> |
+  <a href="#sway" title="Sway">Sway</a> |
+  <a href="#notes" title="Notes">Notes</a> |
+  <a href="https://github.com/kenshaw/wallgrab/issues" title="Issues">Issues</a>
+</div>
+
+<br/>
+
+`wallgrab` downloads Apple Aerial wallpapers. These are the videos that macOS
+and tvOS play as a screen saver.
+
+`wallgrab` reads the same manifest that macOS reads, so it lists every
+wallpaper that Apple publishes, in any of the [44 languages](#using) that Apple
+provides names for. It can [write a playlist](#using) for a video player, and
+it can [draw a thumbnail of each wallpaper](#using) in a terminal that supports
+graphics.
+
+[![Unit Tests][wallgrab-ci-status]][wallgrab-ci]
+[![Go Reference][goref-wallgrab-status]][goref-wallgrab]
+[![Discord Discussion][discord-status]][discord]
+
+[wallgrab-ci]: https://github.com/kenshaw/wallgrab/actions/workflows/test.yml "Test CI"
+[wallgrab-ci-status]: https://github.com/kenshaw/wallgrab/actions/workflows/test.yml/badge.svg "Test CI"
+[goref-wallgrab]: https://pkg.go.dev/github.com/kenshaw/wallgrab "Go Reference"
+[goref-wallgrab-status]: https://pkg.go.dev/badge/github.com/kenshaw/wallgrab.svg "Go Reference"
+[discord]: https://discord.gg/WDWAgXwJqN "Discord Discussion"
+[discord-status]: https://img.shields.io/discord/829150509658013727.svg?label=Discord&logo=Discord&colorB=7289da&style=flat-square "Discord Discussion"
+
+## Installing
+
+Install in the usual Go fashion:
+
+```sh
+$ go install github.com/kenshaw/wallgrab@master
+```
 
 ## Using
 
 ```sh
-# list available wallpapers
-$ wallgrab --list
+# list the available wallpapers
+$ wallgrab list
 
-# show available wallpapers using terminal graphics
-$ wallgrab --show
+# list the wallpapers with the size of each one
+$ wallgrab list --sizes
 
-# grab
-$ wallgrab --grab
+# list the names in another language
+$ wallgrab list --lang ja
 
-# grab and write playlist
-$ wallgrab --grab --dest /path/to/wallpapers
+# draw a thumbnail of each wallpaper in the terminal
+$ wallgrab show
+
+# download the wallpapers
+$ wallgrab grab
+
+# download to a directory, and write a playlist
+$ wallgrab grab --dest /path/to/wallpapers --m3u aerials.m3u
 
 # use with mpvpaper
 $ mpvpaper -o 'no-audio --loop-playlist shuffle --speed=0.2' '*' /path/to/wallpapers/aerials.m3u
+```
+
+Run `wallgrab list --lang xx` to see every language that Apple provides names
+for. The command fails and lists them. See [Sway](#sway) for a desktop
+configuration that plays the wallpapers, and [Notes](#notes) for the `mpv`
+commands that control it.
+
+### The cache
+
+wallgrab keeps the files that it needs to find the wallpapers in
+`~/.cache/wallgrab` for a week. It does not cache the wallpapers themselves.
+
+When a cached file is truncated or corrupt, wallgrab deletes that one file and
+downloads it again. To delete the whole cache directory instead, add `--clear`
+to any command:
+
+```sh
+$ wallgrab list --clear
 ```
 
 ### Sway
@@ -76,8 +137,8 @@ bindsym {
 
 > **Note:**
 >
-> The above \\'s are not a typo: due to the way escaping works with sway
-> config, and in turn with mpvpaper, this is the correct number of \\'s.
+> The number of backslashes above is correct. Sway config and mpvpaper each
+> remove one level of escaping.
 
 To use with `swaylock-plugin`, [see the lock script here][shell-config-script].
 
@@ -106,9 +167,10 @@ $ mpv --list-properties
 
 > **Note:**
 >
-> ${osd-ass-cc/0} and ${osd-ass-cc/1} - starts and ends subtitle escaping
+> `${osd-ass-cc/0}` starts subtitle escaping. `${osd-ass-cc/1}` ends it.
 >
-> \an<pos> - uses numpad numbers for location, hence 3 == lower right
+> `\an<pos>` sets the position with numpad numbers. 3 is the lower right
+> corner.
 
 - See [the mpv.io manual][mpvio]
 - See [mpv.io commands][mpvcommands] for commands that can be sent via the control socket

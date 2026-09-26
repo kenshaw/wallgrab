@@ -3,3 +3,12 @@
 *.tar
 *.mov
 *.png
+
+# local scratch/notes, not part of the project
+/crossfade.txt
+/notes.txt
+/x.sh
+/skills-lock.json
+/history/
+/mpv-live-filters/
+/xfade-ffmpeg-script/

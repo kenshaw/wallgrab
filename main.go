@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,42 +58,43 @@ func main() {
 	}
 	ox.RunContext(
 		context.Background(),
-		ox.Usage("wallgrab", "a apple aerials wallpaper downloader"),
+		ox.Usage("wallgrab", "download Apple Aerial wallpapers"),
 		ox.Defaults(),
 		ox.From(args),
 		ox.Sub(
 			ox.Exec(args.doList),
-			ox.Usage("list", "list available aerials"),
+			ox.Usage("list", "list the available wallpapers"),
 		),
 		ox.Sub(
 			ox.Exec(args.doShow),
-			ox.Usage("show", "show available aerial thumbnails with term graphics"),
+			ox.Usage("show", "draw a thumbnail of each wallpaper in the terminal"),
 		),
 		ox.Sub(
 			ox.Exec(args.doGrab),
-			ox.Usage("grab", "grab available aerials"),
+			ox.Usage("grab", "download the wallpapers"),
 		),
 	)
 }
 
 type Args struct {
-	Verbose      bool   `ox:"enable verbose,short:v"`
-	Quiet        bool   `ox:"enable quiet,short:q"`
-	MacOSVersion string `ox:"macOS version,name:macos-version"`
-	Streams      int    `ox:"concurrent streams"`
-	Sizes        bool   `ox:"show sizes"`
-	Dest         string `ox:"dest"`
-	M3u          string `ox:"m3u"`
-	UserAgent    string `ox:"user agent"`
-	Lang         string `ox:"language"`
+	Verbose      bool   `ox:"write progress and requests to stderr,short:v"`
+	MacOSVersion string `ox:"macOS version to get wallpapers for,name:macos-version"`
+	Streams      int    `ox:"number of downloads to run at the same time"`
+	Sizes        bool   `ox:"show the size of each wallpaper"`
+	Dest         string `ox:"directory to write the wallpapers to"`
+	M3u          string `ox:"name of the playlist file to write"`
+	UserAgent    string `ox:"user agent to send with each request"`
+	Lang         string `ox:"language for the wallpaper names"`
+	Clear        bool   `ox:"delete the cache directory before running"`
 
 	resURL   string
+	pool     *x509.CertPool
 	loctable map[string]map[string]any
 	logger   func(string, ...any)
-	err      error
 }
 
-// setup sets up the args.
+// setup prepares args for a command. It builds the user agent and the cert
+// pool, then finds the URL of the resources tar.
 func (args *Args) setup(ctx context.Context) error {
 	// set verbose logger
 	if args.Verbose {
@@ -102,11 +102,21 @@ func (args *Args) setup(ctx context.Context) error {
 			fmt.Fprintf(os.Stderr, s+"\n", v...)
 		}
 	}
+	if args.Clear {
+		if err := args.clearCache(ctx); err != nil {
+			return fmt.Errorf("unable to clear cache: %w", err)
+		}
+	}
+	now := time.Now()
 	if err := args.buildUserAgent(ctx); err != nil {
 		return fmt.Errorf("unable to build user agent: %w", err)
 	}
-	now := time.Now()
 	args.logger("user-agent: %s (%s)", args.UserAgent, time.Since(now))
+	now = time.Now()
+	if err := args.buildCertPool(ctx); err != nil {
+		return fmt.Errorf("unable to build cert pool: %w", err)
+	}
+	args.logger("ca bundle: %s (%s)", appleCABundleURL, time.Since(now))
 	now = time.Now()
 	if err := args.getResURL(ctx); err != nil {
 		return fmt.Errorf("unable to get res url: %w", err)
@@ -115,7 +125,7 @@ func (args *Args) setup(ctx context.Context) error {
 	return nil
 }
 
-// doList lists the available assets.
+// doList writes the available wallpapers to stdout.
 func (args *Args) doList(ctx context.Context) error {
 	if err := args.setup(ctx); err != nil {
 		return fmt.Errorf("unable to setup: %w", err)
@@ -149,7 +159,7 @@ func (args *Args) doList(ctx context.Context) error {
 	return nil
 }
 
-// doShow shows the assets in the terminal.
+// doShow draws a thumbnail of each wallpaper in the terminal.
 func (args *Args) doShow(ctx context.Context) error {
 	if !rasterm.Available() {
 		return rasterm.ErrTermGraphicsNotAvailable
@@ -184,7 +194,7 @@ func (args *Args) doShow(ctx context.Context) error {
 	return nil
 }
 
-// doGrab grabs assets.
+// doGrab downloads the wallpapers.
 func (args *Args) doGrab(ctx context.Context) error {
 	start := time.Now()
 	if err := args.setup(ctx); err != nil {
@@ -215,7 +225,7 @@ func (args *Args) doGrab(ctx context.Context) error {
 	return nil
 }
 
-// getSizes adds the sizes for the files to the metadata.
+// getSizes reads the size of each wallpaper and stores it on the asset.
 func (args *Args) getSizes(ctx context.Context, entries *Entries) error {
 	if len(entries.Assets) < 1 {
 		return nil
@@ -263,7 +273,8 @@ func (args *Args) getSizes(ctx context.Context, entries *Entries) error {
 	return nil
 }
 
-// setDL sets whether or not to download the assets.
+// setDL marks an asset for download when the local file is absent, or when
+// its size differs from the size on the server.
 func (args *Args) setDL(entries *Entries) error {
 	u, err := user.Current()
 	if err != nil {
@@ -373,8 +384,8 @@ func (args *Args) getAssets(ctx context.Context, entries *Entries) error {
 	return nil
 }
 
-// getLoctable returns the decoded localization table, keyed by language and
-// then by localization key.
+// getLoctable returns the localization table. The table maps a language to
+// its localization keys, and each key to its localized string.
 func (args *Args) getLoctable(ctx context.Context) (map[string]map[string]any, error) {
 	if args.loctable != nil {
 		return args.loctable, nil
@@ -383,8 +394,8 @@ func (args *Args) getLoctable(ctx context.Context) (map[string]map[string]any, e
 	if err != nil {
 		return nil, err
 	}
-	// the table is a binary plist, and carries a LocProvenance entry alongside
-	// the languages whose values are not strings
+	// the table is a binary plist. It holds a LocProvenance entry next to the
+	// languages, and the values of that entry are not strings.
 	loctable := make(map[string]map[string]any)
 	if err := plist.Unmarshal(buf, &loctable); err != nil {
 		return nil, err
@@ -419,9 +430,10 @@ func (args *Args) getNames(ctx context.Context) (map[string]string, error) {
 	return m, nil
 }
 
-// matchLang matches the language against the available languages, either
-// exactly, case insensitively, or by unique language prefix (ie "zh" matches
-// nothing, as "zh_CN", "zh_HK", and "zh_TW" are all available).
+// matchLang matches the language against the available languages. It matches
+// the name exactly, then without case, then by a language prefix that belongs
+// to one language only. The prefix "zh" matches nothing, because zh_CN,
+// zh_HK, and zh_TW are all available.
 func matchLang(langs []string, lang string) (string, error) {
 	name := strings.ReplaceAll(lang, "-", "_")
 	if slices.Contains(langs, name) {
@@ -443,8 +455,8 @@ func matchLang(langs []string, lang string) (string, error) {
 	return "", fmt.Errorf("unknown language %q (available: %s)", lang, strings.Join(langs, " "))
 }
 
-// localized returns the localized string for the key, falling back to the key
-// when the language has no string for it.
+// localized returns the localized string for the key. It returns the key
+// itself when the language has no string for that key.
 func localized(names map[string]string, key string) string {
 	if s := names[key]; s != "" {
 		return s
@@ -452,7 +464,7 @@ func localized(names map[string]string, key string) string {
 	return key
 }
 
-// getEntries gets the asset entries.
+// getEntries returns the asset manifest, with the localized names applied.
 func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 	buf, err := args.getTarFile(ctx, entriesName)
 	if err != nil {
@@ -470,8 +482,8 @@ func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 	}
 	for i, asset := range entries.Assets {
 		asset.Name = localized(names, asset.LocalizedNameKey)
-		// variant assets (ie the dynamic wallpapers) share a localized name for
-		// each orientation, so qualify with the orientation
+		// the dynamic wallpapers use one name for both orientations. Add the
+		// orientation to keep the two names apart.
 		if asset.Variant != nil && asset.Variant.Orientation != "" {
 			asset.Name += " (" + asset.Variant.Orientation + ")"
 		}
@@ -491,9 +503,9 @@ func (args *Args) getEntries(ctx context.Context) (*Entries, error) {
 		}
 		entries.Assets[i] = asset
 	}
-	// some languages translate distinct assets to the same name (ie "Hong Kong
-	// Skyline" and "Hong Kong Horizon" share a translation in ar and sl), so
-	// qualify any collision with the asset's shot id
+	// some languages give two different wallpapers the same name. Arabic and
+	// Slovenian translate both "Hong Kong Skyline" and "Hong Kong Horizon" the
+	// same way. Add the shot id to every name that repeats.
 	counts := make(map[string]int)
 	for _, asset := range entries.Assets {
 		counts[asset.String()]++
@@ -528,26 +540,56 @@ func (args *Args) listLangs(ctx context.Context) error {
 	return nil
 }
 
+// getTarFile returns the named file from the resources tar. If the cached tar
+// cannot be read, getTarFile deletes it from the cache and tries once more. A
+// truncated or corrupt cached response otherwise stays until the cache entry
+// expires.
 func (args *Args) getTarFile(ctx context.Context, name string) ([]byte, error) {
+	switch buf, err := args.readTarFile(ctx, name); {
+	case err == nil:
+		return buf, nil
+	case !errors.Is(err, errCorrupt):
+		return nil, err
+	default:
+		args.logger("%v (evicting and retrying)", err)
+	}
+	if err := args.evict(ctx, args.resURL); err != nil {
+		return nil, fmt.Errorf("unable to evict %s: %w", args.resURL, err)
+	}
+	buf, err := args.readTarFile(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("%w (run with --clear to delete the cache)", err)
+	}
+	return buf, nil
+}
+
+// readTarFile reads the named file from the resources tar.
+func (args *Args) readTarFile(ctx context.Context, name string) ([]byte, error) {
 	body, err := args.get(ctx, args.resURL)
 	if err != nil {
 		return nil, err
 	}
 	defer body.Close()
-	args.logger("reading tar for: %s", name)
+	args.logger("reading %s from tar", name)
 	for n, r := strings.TrimPrefix(name, "./"), tar.NewReader(body); ; {
-		switch h, err := r.Next(); {
+		h, err := r.Next()
+		switch {
 		case errors.Is(err, io.EOF):
-			return nil, fmt.Errorf("%s does not contain %s", args.resURL, name)
+			return nil, fmt.Errorf("%w: %s does not contain %s", errCorrupt, args.resURL, name)
 		case err != nil:
-			return nil, err
-		case strings.TrimPrefix(h.Name, "./") == n:
-			return io.ReadAll(r)
+			return nil, fmt.Errorf("%w: unable to read %s: %w", errCorrupt, args.resURL, err)
+		case strings.TrimPrefix(h.Name, "./") != n:
+			continue
 		}
+		buf, err := io.ReadAll(r)
+		if err != nil {
+			return nil, fmt.Errorf("%w: unable to read %s from %s: %w", errCorrupt, name, args.resURL, err)
+		}
+		return buf, nil
 	}
 }
 
-// getSize gets the size for an asset, by performing a HEAD against the url.
+// getSize returns the size of an asset. It sends a HEAD request to the URL.
 func (args *Args) getSize(ctx context.Context, asset Asset) (ox.Size, error) {
 	args.logger("checking: %s %s", asset.ShotID, asset.String())
 	args.logger("HEAD %s", asset.URL4kSdr240FPS)
@@ -595,7 +637,7 @@ func (args *Args) writeM3U(entries *Entries) error {
 	return f.Close()
 }
 
-// addDur loads the durations of the files using ffprobe.
+// addDur reads the duration of each downloaded file with ffprobe.
 func (args *Args) addDur(ctx context.Context, entries *Entries) error {
 	for i, asset := range entries.Assets {
 		dur, err := ffprobeDuration(ctx, asset.Out)
@@ -609,7 +651,7 @@ func (args *Args) addDur(ctx context.Context, entries *Entries) error {
 	return nil
 }
 
-// buildUserAgent builds the user agent.
+// buildUserAgent sets the user agent to the current stable Chrome user agent.
 func (args *Args) buildUserAgent(ctx context.Context) error {
 	if args.UserAgent != "" {
 		return nil
@@ -628,29 +670,86 @@ func (args *Args) buildUserAgent(ctx context.Context) error {
 	return err
 }
 
-// init initializes the ca certs using during http requests.
-func (args *Args) init() error {
-	caCertsOnce.Do(func() {
-		if caCerts, args.err = x509.SystemCertPool(); args.err != nil {
-			return
+// buildCertPool builds the cert pool used to verify Apple's hosts. If the
+// cached bundle cannot be read, buildCertPool deletes it from the cache and
+// tries once more.
+func (args *Args) buildCertPool(ctx context.Context) error {
+	pool, err := args.certPool(ctx)
+	if errors.Is(err, errCorrupt) {
+		args.logger("%v (evicting and retrying)", err)
+		if err := args.evict(ctx, appleCABundleURL); err != nil {
+			return fmt.Errorf("unable to evict %s: %w", appleCABundleURL, err)
 		}
-		if ok := caCerts.AppendCertsFromPEM(appleCABundlePEM); !ok {
-			args.err = errors.New("unable to append apple_ca_bundle.pem to system certs")
-			return
-		}
-	})
-	return args.err
+		pool, err = args.certPool(ctx)
+	}
+	if err != nil {
+		return err
+	}
+	args.pool = pool
+	return nil
 }
 
-// client returns the http client using the shared cache.
-func (args *Args) client(ctx context.Context, cache bool) (*http.Client, error) {
-	if err := args.init(); err != nil {
+// certPool returns the system cert pool with Apple's root CA bundle added.
+// Apple's configuration and asset hosts do not use a publicly trusted root.
+func (args *Args) certPool(ctx context.Context) (*x509.CertPool, error) {
+	// args.pool is still nil here, so the system roots verify this request
+	buf, err := args.getAll(ctx, appleCABundleURL)
+	if err != nil {
 		return nil, err
 	}
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, err
+	}
+	if ok := pool.AppendCertsFromPEM(buf); !ok {
+		return nil, fmt.Errorf("%w: %s contains no certificates", errCorrupt, appleCABundleURL)
+	}
+	return pool, nil
+}
+
+// cacheDir returns the artifact cache directory.
+func (args *Args) cacheDir(ctx context.Context) (string, error) {
+	c, _ := ox.Ctx(ctx)
+	if c.Root.Name == "" {
+		return "", errors.New("unable to determine cache directory")
+	}
+	return diskcache.UserCacheDir(c.Root.Name)
+}
+
+// clearCache deletes the whole artifact cache directory.
+func (args *Args) clearCache(ctx context.Context) error {
+	dir, err := args.cacheDir(ctx)
+	if err != nil {
+		return err
+	}
+	args.logger("removing: %s", dir)
+	return os.RemoveAll(dir)
+}
+
+// evict deletes the cached response for one URL.
+func (args *Args) evict(ctx context.Context, urlstr string) error {
+	c, _ := ox.Ctx(ctx)
+	cache, err := newDiskCache(c.Root.Name, http.DefaultTransport)
+	if err != nil {
+		return err
+	}
+	req, err := args.newReq(ctx, "GET", urlstr, nil)
+	if err != nil {
+		return err
+	}
+	args.logger("evicting: %s", urlstr)
+	return cache.Evict(req)
+}
+
+// client returns an http client. It reads and writes the shared disk cache
+// when cache is true.
+func (args *Args) client(ctx context.Context, cache bool) (*http.Client, error) {
 	var transport http.RoundTripper = http.DefaultTransport.(*http.Transport).Clone()
 	transport.(*http.Transport).TLSClientConfig = &tls.Config{
 		InsecureSkipVerify: false,
-		RootCAs:            caCerts,
+		// args.pool is nil until the Apple bundle arrives. A nil pool means
+		// the system roots, which verify the download of the bundle itself.
+		RootCAs: args.pool,
 	}
 	if cache {
 		if args.Verbose {
@@ -671,7 +770,7 @@ func (args *Args) client(ctx context.Context, cache bool) (*http.Client, error) 
 	}, nil
 }
 
-// newReq creates a new request
+// newReq creates a request with the user agent set.
 func (args *Args) newReq(ctx context.Context, method, urlstr string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, urlstr, body)
 	if err != nil {
@@ -681,7 +780,7 @@ func (args *Args) newReq(ctx context.Context, method, urlstr string, body io.Rea
 	return req, nil
 }
 
-// get returns the url using the shared cache.
+// get returns the body of the URL, using the shared cache.
 func (args *Args) get(ctx context.Context, urlstr string) (io.ReadCloser, error) {
 	args.logger("GET %s", urlstr)
 	cl, err := args.client(ctx, true)
@@ -708,7 +807,7 @@ func (args *Args) getAll(ctx context.Context, urlstr string) ([]byte, error) {
 	return io.ReadAll(body)
 }
 
-// getResURL gets the resources url.
+// getResURL finds the URL of the resources tar for the macOS version.
 func (args *Args) getResURL(ctx context.Context) error {
 	if args.resURL != "" {
 		return nil
@@ -801,8 +900,8 @@ func (a Asset) String() string {
 	return strings.Join(a.Names(), "/") + path.Ext(a.URL4kSdr240FPS)
 }
 
-// Variant contains the variant information for assets available in more than
-// one appearance or orientation (ie the dynamic wallpapers).
+// Variant describes an asset that exists in more than one appearance or
+// orientation. Only the dynamic wallpapers use it.
 type Variant struct {
 	Appearance  string `json:"appearance"`
 	Orientation string `json:"orientation"`
@@ -830,8 +929,8 @@ type Subcategory struct {
 	CombineVariants         bool   `json:"combineVariants"`
 }
 
-// newDiskCache creates the a new disk cache.
-func newDiskCache(name string, transport http.RoundTripper) (http.RoundTripper, error) {
+// newDiskCache creates a disk cache in the user cache directory.
+func newDiskCache(name string, transport http.RoundTripper) (*diskcache.Cache, error) {
 	cache, err := diskcache.New(
 		diskcache.WithAppCacheDir(name),
 		diskcache.WithMethod("GET", "HEAD"),
@@ -840,12 +939,14 @@ func newDiskCache(name string, transport http.RoundTripper) (http.RoundTripper, 
 		diskcache.WithErrorTruncator(),
 		diskcache.WithGzipCompression(),
 		diskcache.WithTransport(transport),
-		diskcache.WithContentTypeTTL(7*24*time.Hour, "text/xml", "application/octet-stream", "video/quicktime"),
+		// diskcache matches a content type against the response header
+		// exactly. A type that is not listed here keeps the 30 day TTL above.
+		diskcache.WithContentTypeTTL(7*24*time.Hour, "text/xml", "application/octet-stream", "video/quicktime", "text/plain; charset=utf-8"),
 	)
 	return cache, err
 }
 
-// expand expands the beginning tilde (~) in a file name to the provided home
+// expand replaces a leading tilde (~) in a file name with the home
 // directory.
 func expand(u *user.User, name string) string {
 	switch {
@@ -857,7 +958,7 @@ func expand(u *user.User, name string) string {
 	return name
 }
 
-// ffprobeDuration uses ffprobe to determine the duration in seconds of a file.
+// ffprobeDuration returns the duration of a file in seconds. It runs ffprobe.
 func ffprobeDuration(ctx context.Context, name string) (int64, error) {
 	ffprobeOnce.Do(func() {
 		ffprobePath, _ = exec.LookPath("ffprobe")
@@ -894,22 +995,24 @@ var (
 	ffprobeOnce sync.Once
 )
 
-// ca bundle vars.
-var (
-	caCerts     *x509.CertPool
-	caCertsOnce sync.Once
-)
+// errCorrupt reports that an artifact cannot be read, which means the cached
+// response is truncated or corrupt. The caller deletes the cache entry and
+// tries once more.
+var errCorrupt = errors.New("corrupt")
 
 const (
 	// resourcesConfigPlistURL is the resources config plist URL.
 	resourcesConfigPlistURL = "https://configuration.apple.com/configurations/internetservices/aerials/resources-config-%s.plist"
+	// appleCABundleURL is the URL of Apple's root CA bundle, published by
+	// github.com/tls-inspector/rootca. This is the copy committed to the
+	// repository, not the release asset. Both hold the same bytes, but the
+	// release asset redirects to a signed URL that expires within the hour,
+	// so nothing can cache it.
+	appleCABundleURL = "https://raw.githubusercontent.com/tls-inspector/rootca/main/bundles/apple_ca_bundle.pem"
 	// entriesName is the name of the asset manifest within the resources tar.
 	entriesName = "entries.json"
-	// loctableName is the name of the localization table within the resources
-	// tar. Prior to macOS v27 this was a Localizable.nocache.strings plist per
-	// language, alongside the bundle's Contents.
+	// loctableName is the name of the localization table in the resources tar.
+	// Before macOS v27, each language had its own Localizable.nocache.strings
+	// plist next to the Contents directory of the bundle.
 	loctableName = "TVIdleScreenStrings.bundle/Contents/Resources/Localizable.nocache.loctable"
 )
-
-//go:embed apple_ca_bundle.pem
-var appleCABundlePEM []byte
