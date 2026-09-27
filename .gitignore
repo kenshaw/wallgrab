@@ -4,10 +4,12 @@
 *.mov
 *.png
 
+# the Claude Code permissions of one person
+.claude/settings.local.json
+
 # local scratch/notes, not part of the project
 /crossfade.txt
 /notes.txt
 /x.sh
-/skills-lock.json
 /mpv-live-filters/
 /xfade-ffmpeg-script/

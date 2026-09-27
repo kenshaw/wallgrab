@@ -7,6 +7,7 @@
   <a href="#the-cache" title="The cache">The cache</a> |
   <a href="#sway" title="Sway">Sway</a> |
   <a href="#notes" title="Notes">Notes</a> |
+  <a href="#documents" title="Documents">Documents</a> |
   <a href="https://github.com/kenshaw/wallgrab/releases" title="Releases">Releases</a> |
   <a href="https://github.com/kenshaw/wallgrab/issues" title="Issues">Issues</a>
 </div>
@@ -224,6 +225,15 @@ $ mpv --list-properties
 - See [mpv.io properties][mpvprops] for available mpv text properties
 - See [aegisub manual][aegisub] for more info on subtitle tags
 - See [Aerials discussion thread][aerialsgist]
+
+## Documents
+
+- [AGENTS.md](AGENTS.md) holds the rules for a coding agent. `CLAUDE.md`
+  imports it.
+- [CONTRIBUTING.md](CONTRIBUTING.md) is for a person who changes wallgrab.
+- [docs/PLAN.md](docs/PLAN.md) holds the plan, every decision and the open
+  questions.
+- [docs/BACKLOG.md](docs/BACKLOG.md) holds the work that is known and not done.
 
 [mpvio]: https://mpv.io/manual/stable/
 [mpvprops]: https://mpv.io/manual/stable/#properties
