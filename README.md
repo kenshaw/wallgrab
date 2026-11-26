@@ -9,7 +9,7 @@
   <a href="#notes" title="Notes">Notes</a> |
   <a href="#documents" title="Documents">Documents</a> |
   <a href="https://github.com/kenshaw/wallgrab/releases" title="Releases">Releases</a> |
-  <a href="https://github.com/kenshaw/wallgrab/issues" title="Issues">Issues</a>
+  <a href="https://github.com/kenshaw/wallgrab/discussions" title="Discussions">Discussions</a>
 </div>
 
 <br/>
